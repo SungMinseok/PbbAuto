@@ -5,6 +5,7 @@ import pyautogui as pag
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton, QLineEdit, QTextEdit, QScrollArea, QShortcut, QFileDialog, QMessageBox, QLineEdit, QPushButton, QCheckBox, QFrame, QDialog
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QKeySequence
+from PyQt5.QtWidgets import QMenuBar, QAction
 import os
 from datetime import datetime
 import pydirectinput as pyd
@@ -12,13 +13,21 @@ import pyperclip
 import subprocess
 import pytesseract
 import threading
+import json
 #from PIL import Image
 import csv
 from openpyxl import Workbook, load_workbook
 from openpyxl.drawing.image import Image as ExcelImage
 from tes import image_to_text_with_fallback
 #from PIL import Image as PILImage
-pytesseract.pytesseract.tesseract_cmd = fr'C:\Program Files\Tesseract-OCR\tesseract.exe'
+
+# We'll set tesseract path at runtime via UI or auto-detection.
+def set_pytesseract_cmd(path):
+    """Set pytesseract.tesseract_cmd if the path looks valid."""
+    if path and os.path.exists(path) and path.lower().endswith('tesseract.exe'):
+        pytesseract.pytesseract.tesseract_cmd = path
+        return True
+    return False
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -48,10 +57,10 @@ class CommandPopup(QDialog):
             hbox = QHBoxLayout()
             label = QLabel(cmd)
             status = QLabel("")
-            hbox.addWidget(label)
             hbox.addWidget(status)
+            hbox.addWidget(label)
             self.layout.addLayout(hbox)
-            self.labels.append((label, status))
+            self.labels.append((status, label))
         self.stop_btn = QPushButton("중지")
         self.stop_btn.clicked.connect(self.stop_execution)
         self.layout.addWidget(self.stop_btn)
@@ -59,7 +68,7 @@ class CommandPopup(QDialog):
         self.stopped = False
 
     def mark_executed(self, idx):
-        self.labels[idx][1].setText("✅")
+        self.labels[idx][0].setText("✅")
 
     def stop_execution(self):
         self.stopped = True
@@ -193,6 +202,16 @@ class PbbAutoApp(QWidget):
         
         main_layout.addLayout(file_layout)
 
+        # Tesseract executable path input and button
+        tesseract_layout = QHBoxLayout()
+        self.tesseract_input = QLineEdit(self)
+        self.tesseract_input.setPlaceholderText('Path to tesseract.exe (optional)')
+        self.tesseract_browse_btn = QPushButton('Browse Tesseract', self)
+        self.tesseract_browse_btn.clicked.connect(self.select_tesseract_file)
+        tesseract_layout.addWidget(self.tesseract_input)
+        tesseract_layout.addWidget(self.tesseract_browse_btn)
+        main_layout.addLayout(tesseract_layout)
+
         '''
         region
         '''
@@ -309,6 +328,70 @@ class PbbAutoApp(QWidget):
         self.setWindowTitle('PbbAuto - Test Automation')
         self.setGeometry(300, 300, 500, 400)
 
+        # Load config (tesseract path) if present; otherwise try to auto-detect
+        if not self.load_config():
+            self.auto_detect_tesseract()
+
+        # 메뉴바 추가: 메뉴 -> Test OCR and Set Tesseract Path
+        menubar = QMenuBar(self)
+        menu = menubar.addMenu('메뉴')
+        set_tess_action = QAction('Set Tesseract Path', self)
+        set_tess_action.triggered.connect(self.select_tesseract_file)
+        menu.addAction(set_tess_action)
+
+        test_ocr_action = QAction('Test OCR', self)
+        test_ocr_action.triggered.connect(self.test_ocr)
+        menu.addAction(test_ocr_action)
+        # Place the menubar at the top of the widget using a layout trick
+        # Create a small layout to contain the menubar above the main layout
+        outer_layout = QVBoxLayout()
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.addWidget(menubar)
+        outer_layout.addLayout(main_layout)
+        self.setLayout(outer_layout)
+
+    # ----- Config persistence -----
+    def load_config(self):
+        """Load config.json and set tesseract path. Returns True if loaded and set."""
+        config_path = os.path.join(current_dir, 'config.json')
+        if not os.path.exists(config_path):
+            return False
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                cfg = json.load(f)
+            tess_path = cfg.get('tesseract_path')
+            if tess_path and set_pytesseract_cmd(tess_path):
+                try:
+                    self.tesseract_input.setText(tess_path)
+                except Exception:
+                    pass
+                print(f"Loaded tesseract path from config: {tess_path}")
+                return True
+        except Exception as e:
+            print(f"Error loading config.json: {e}")
+        return False
+
+    def save_config(self):
+        """Save current tesseract path to config.json."""
+        config_path = os.path.join(current_dir, 'config.json')
+        try:
+            cfg = {}
+            if os.path.exists(config_path):
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    try:
+                        cfg = json.load(f)
+                    except Exception:
+                        cfg = {}
+            tess_path = self.tesseract_input.text().strip()
+            cfg['tesseract_path'] = tess_path
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump(cfg, f, ensure_ascii=False, indent=2)
+            print(f"Saved tesseract path to config: {tess_path}")
+            return True
+        except Exception as e:
+            print(f"Error saving config.json: {e}")
+            return False
+
     # Refresh function to update window list
     def refresh_window_list(self):
         prefix = self.prefix_input.text()
@@ -352,7 +435,8 @@ class PbbAutoApp(QWidget):
         self.popup = CommandPopup(commands, self)
         self.popup.show()
         print("명령어 실행 시작")
-        thread = threading.Thread(target=self._execute_commands_worker_with_popup, args=(commands,))
+        #thread = threading.Thread(target=self._execute_commands_worker_with_popup, args=(commands,))
+        thread = threading.Thread(target=self._execute_commands_worker)
         thread.start()
 
     def stop_execution(self):
@@ -399,13 +483,15 @@ class PbbAutoApp(QWidget):
 
                 commands = self.textarea.toPlainText().strip().split('\n')
                 time.sleep(0.2)
-                for command in commands:
+                for idx, command in enumerate(commands):
                     if self.stop_flag:
                         print("Stopped during command execution.")
                         return
                     command = command.split('#')[0].strip()
                     if command:
                         self.process_command(command)
+                        self.popup.mark_executed(idx)
+                        
 
         try:
             if self.open_report_checkbox.isChecked():
@@ -413,16 +499,16 @@ class PbbAutoApp(QWidget):
         except Exception as e:
             print('리포트 파일 열기 오류 :', e)
 
-    def _execute_commands_worker_with_popup(self, commands):
-        for idx, command in enumerate(commands):
-            if self.stop_flag or getattr(self.popup, 'stopped', False):
-                print("Execution stopped by user.")
-                break
-            self.process_command(command)
-            # 명령어 오른쪽에 실행 표시
-            self.popup.mark_executed(idx)
-            time.sleep(0.2)
-        self.popup.close()
+    # def _execute_commands_worker_with_popup(self, commands):
+    #     for idx, command in enumerate(commands):
+    #         if self.stop_flag or getattr(self.popup, 'stopped', False):
+    #             print("Execution stopped by user.")
+    #             break
+    #         self.process_command(command)
+    #         # 명령어 오른쪽에 실행 표시
+    #         self.popup.mark_executed(idx)
+    #         time.sleep(0.2)
+    #     self.popup.close()
 
     def take_screenshot(self):
         """Take a full-screen screenshot."""
@@ -543,6 +629,9 @@ class PbbAutoApp(QWidget):
         # Image-to-text (English)
         elif action == "i2s":
             self.extracted_text = self.image_to_text(img_path=self.screenshot_path, lang='eng')
+            #global recent_txt
+            recent_txt = self.extracted_text
+            print(f'{recent_txt=}')
             if self.extracted_text:
                 print(f"Extracted text (English): {self.extracted_text}")
                 if len(parts) > 1 and parts[1].lower() == "show":
@@ -554,6 +643,8 @@ class PbbAutoApp(QWidget):
 
         elif action == "i2skr":
             self.extracted_text = self.image_to_text(img_path=self.screenshot_path, lang='kor')
+            #global recent_txt
+            recent_txt = self.extracted_text
             if self.extracted_text:
                 print(f"Extracted text (English): {self.extracted_text}")
                 if len(parts) > 1 and parts[1].lower() == "show":
@@ -659,7 +750,7 @@ class PbbAutoApp(QWidget):
                     workbook = Workbook()
                     sheet = workbook.active
                     # Add headers to the new file
-                    sheet.append(["Title", "Expected Result", "Status", "Observed Reuslt", "Screenshot Path"])
+                    sheet.append(["Title", "Expected Value", "Result", "Experimental Value", "Screenshot Path", "Screenshot"])
 
                 # Append new row to the Excel file
                 new_row = [custom_title, self.expected_text, self.last_result, self.extracted_text, self.screenshot_path if hasattr(self, 'screenshot_path') else ""]
@@ -691,6 +782,54 @@ class PbbAutoApp(QWidget):
                 print(f"Validation result exported to {self.cl_path} with title: {custom_title}")
             except Exception as e:
                 print(f"Error exporting result: {e}")
+
+        elif action == "waituntil":
+        # 예) waituntil screenshot 2162 1076 44 26 i2s ADS
+            if len(parts) < 8:
+                print("Usage: waituntil screenshot x y w h i2s|i2skr target_text")
+                return
+
+            sc_x, sc_y, sc_w, sc_h = map(int, parts[2:6])
+            ocr_cmd = parts[6].strip()
+            target_text = parts[7].strip()
+
+            print(f"Waiting until '{target_text}' appears (max 10 tries)...")
+
+            for i in range(10):  # 최대 10회 시도
+                if self.stop_flag:
+                    print("Stopped during waituntil.")
+                    return
+
+                try:
+                    # 1) screenshot 실행
+                    screenshot_path = self.take_screenshot_with_coords(sc_x, sc_y, sc_w, sc_h)
+
+                    # 2) OCR 실행
+                    if ocr_cmd == "i2s":
+                        self.extracted_text = self.image_to_text(img_path=screenshot_path, lang='eng')
+                    elif ocr_cmd == "i2skr":
+                        self.extracted_text = self.image_to_text(img_path=screenshot_path, lang='kor')
+                    else:
+                        print(f"Unsupported OCR command: {ocr_cmd}")
+                        return
+
+                    # OCR 결과 전역에 저장
+                    #global recent_txt
+                    recent_txt = self.extracted_text
+
+                    if target_text in recent_txt:
+                        print(f"Found '{target_text}' in recent_text.")
+                        break
+
+                    print(f"[{i+1}/10] '{target_text}' not found. Retrying...")
+
+                except Exception as e:
+                    print(f"Error during waituntil loop (try {i+1}): {e}")
+
+                time.sleep(1)  # 예외 발생하더라도 1초 대기 후 다시 시도
+            else:
+                print(f"Timeout: '{target_text}' not found after 10 tries.")
+
 
 
     def capture_mouse_position(self, num):
@@ -728,6 +867,65 @@ class PbbAutoApp(QWidget):
                 self.show_error_message(f"Error running file: {e}")
         else:
             self.show_error_message("Invalid file path. Please select a valid .bat file.")
+
+
+    def select_tesseract_file(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select tesseract.exe", "", "Executable Files (*.exe)")
+        if file_path:
+            # Validate and set
+            if set_pytesseract_cmd(file_path):
+                self.tesseract_input.setText(file_path)
+                # Save selection to config
+                self.save_config()
+                QMessageBox.information(self, "Tesseract", f"Tesseract set to: {file_path}")
+            else:
+                QMessageBox.warning(self, "Tesseract", "Selected file is not a valid tesseract.exe")
+
+    def auto_detect_tesseract(self):
+        # Common install locations on Windows
+        possible_paths = [
+            r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+            r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+        ]
+        for p in possible_paths:
+            if os.path.exists(p):
+                set_pytesseract_cmd(p)
+                # If UI exists, set the input text
+                try:
+                    self.tesseract_input.setText(p)
+                except:
+                    pass
+                print(f"Auto-detected tesseract at: {p}")
+                return True
+        return False
+
+    def test_ocr(self):
+        """Run OCR on the most recent screenshot or take a new screenshot and show the result."""
+        # Prefer the most recent screenshot if available
+        img_path = None
+        try:
+            screenshots = sorted(
+                [f for f in os.listdir(screenshot_dir) if f.endswith('.jpg')],
+                key=lambda f: os.path.getmtime(os.path.join(screenshot_dir, f)),
+                reverse=True
+            )
+            if screenshots:
+                img_path = os.path.join(screenshot_dir, screenshots[0])
+        except Exception:
+            img_path = None
+
+        if not img_path or not os.path.exists(img_path):
+            # Take a fresh screenshot
+            img_path = self.take_screenshot()
+
+        # Run OCR
+        try:
+            extracted = self.image_to_text(img_path=img_path, lang='eng')
+            if not extracted:
+                extracted = "(No text found)"
+            QMessageBox.information(self, "OCR Result", extracted)
+        except Exception as e:
+            QMessageBox.critical(self, "OCR Error", f"Error running OCR: {e}")
 
 
     def show_error_message(self, message):
