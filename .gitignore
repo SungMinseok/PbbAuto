@@ -6,3 +6,7 @@ checklist
 preset
 etc
 main_new.py
+__pycache__
+.vscode
+bundles
+test_results
