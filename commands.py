@@ -3,6 +3,9 @@
 기존 296줄 → 25줄로 대폭 축소! 🎉
 """
 
+# 로그 설정을 가장 먼저 import
+import logger_setup
+
 import os
 from constants import cl_dir
 from command_registry import get_command

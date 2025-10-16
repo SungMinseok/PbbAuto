@@ -1,3 +1,6 @@
+# 로그 설정을 가장 먼저 import
+import logger_setup
+
 import pytesseract
 from PIL import Image, ImageOps, ImageEnhance, ImageFilter
 pytesseract.pytesseract.tesseract_cmd = fr'C:\Program Files\Tesseract-OCR\tesseract.exe'
@@ -37,7 +40,8 @@ def image_to_text_with_fallback(
     try:
         print(f"[🔍] OCR 처리 중: {img_path}")
         img = Image.open(img_path)
-        #img.show()
+        if preview:
+            img.show()
         # 1차 시도
         result = try_ocr(img)
         if result:
@@ -46,10 +50,12 @@ def image_to_text_with_fallback(
 
         # 2차 시도: 반전 후 전처리
         processed_img = preprocess_image(img)
-        processed_img.show()
+        if preview:
+            processed_img.show()
         inverted = ImageOps.invert(img.convert("RGB"))
         inverted = preprocess_image(inverted)
-        #inverted.show()
+        if preview:
+            inverted.show()
 
         if save_inverted:
             test_path = img_path.replace(".jpg", "_inverted_preprocessed.jpg")

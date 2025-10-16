@@ -3,6 +3,9 @@
 기존 535줄 → 대폭 축소! 🎉
 """
 
+# 로그 설정을 가장 먼저 import
+import logger_setup
+
 import time
 import pyautogui as pag
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 

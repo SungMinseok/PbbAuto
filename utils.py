@@ -1,3 +1,6 @@
+# 로그 설정을 가장 먼저 import
+import logger_setup
+
 import os
 import time
 import json

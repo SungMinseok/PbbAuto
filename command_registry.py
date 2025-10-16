@@ -3,6 +3,9 @@
 새로운 명령어를 추가하려면 이 파일에 클래스만 추가하면 됩니다.
 """
 
+# 로그 설정을 가장 먼저 import (print 출력을 로그파일에도 저장)
+import logger_setup
+
 from abc import ABC, abstractmethod
 from PyQt5.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QLabel, QLineEdit, 
                              QSpinBox, QComboBox, QPushButton, QMessageBox, QCheckBox)
@@ -2849,7 +2852,7 @@ class RunAppCommand(CommandBase):
     
     @property
     def description(self): 
-        return "폴더에서 패턴에 맞는 최신 파일을 실행하고 윈도우 자동 설정"
+        return "앱 실행 및 윈도우 자동 설정 (폴더: 최신 파일 검색, 직접: 절대 경로 지정, 윈도우: 실행 없이 윈도우만 인식)"
     
     def _get_window_titles(self):
         """현재 열려있는 윈도우의 제목들을 반환 (탐색기 제외)"""
@@ -2972,6 +2975,39 @@ class RunAppCommand(CommandBase):
         widget = QWidget()
         layout = QVBoxLayout()
         
+        # 실행 모드 선택
+        from PyQt5.QtWidgets import QRadioButton, QButtonGroup
+        mode_layout = QVBoxLayout()
+        mode_layout.addWidget(QLabel('실행 모드:'))
+        
+        mode_buttons_layout = QHBoxLayout()
+        self.folder_mode_radio = QRadioButton('폴더에서 최신 파일 찾기')
+        self.direct_mode_radio = QRadioButton('직접 파일 경로 지정')
+        self.window_mode_radio = QRadioButton('윈도우 인식만 (실행 없음)')
+        self.folder_mode_radio.setChecked(True)  # 기본값
+        
+        # 버튼 그룹으로 묶어서 하나만 선택되도록
+        self.mode_group = QButtonGroup()
+        self.mode_group.addButton(self.folder_mode_radio, 0)
+        self.mode_group.addButton(self.direct_mode_radio, 1)
+        self.mode_group.addButton(self.window_mode_radio, 2)
+        
+        # 모드 변경 시 UI 업데이트
+        self.folder_mode_radio.toggled.connect(self._update_ui_mode)
+        self.direct_mode_radio.toggled.connect(self._update_ui_mode)
+        self.window_mode_radio.toggled.connect(self._update_ui_mode)
+        
+        mode_buttons_layout.addWidget(self.folder_mode_radio)
+        mode_buttons_layout.addWidget(self.direct_mode_radio)
+        mode_buttons_layout.addWidget(self.window_mode_radio)
+        mode_buttons_layout.addStretch()
+        mode_layout.addLayout(mode_buttons_layout)
+        layout.addLayout(mode_layout)
+        
+        # === 폴더 모드 UI ===
+        self.folder_mode_widget = QWidget()
+        folder_mode_layout = QVBoxLayout()
+        
         # 폴더 경로 입력
         folder_layout = QHBoxLayout()
         folder_layout.addWidget(QLabel('폴더 경로:'))
@@ -2981,7 +3017,7 @@ class RunAppCommand(CommandBase):
         self.folder_browse_btn.clicked.connect(self.browse_folder)
         folder_layout.addWidget(self.folder_input)
         folder_layout.addWidget(self.folder_browse_btn)
-        layout.addLayout(folder_layout)
+        folder_mode_layout.addLayout(folder_layout)
         
         # 파일명 패턴 입력
         pattern_layout = QHBoxLayout()
@@ -2989,7 +3025,42 @@ class RunAppCommand(CommandBase):
         self.pattern_input = QLineEdit()
         self.pattern_input.setPlaceholderText("예: *.exe, MyGame*.exe, *launcher*")
         pattern_layout.addWidget(self.pattern_input)
-        layout.addLayout(pattern_layout)
+        folder_mode_layout.addLayout(pattern_layout)
+        
+        self.folder_mode_widget.setLayout(folder_mode_layout)
+        layout.addWidget(self.folder_mode_widget)
+        
+        # === 직접 실행 모드 UI ===
+        self.direct_mode_widget = QWidget()
+        direct_mode_layout = QVBoxLayout()
+        
+        # 실행 파일 경로 입력
+        file_layout = QHBoxLayout()
+        file_layout.addWidget(QLabel('실행 파일 경로:'))
+        self.file_input = QLineEdit()
+        self.file_input.setPlaceholderText("예: C:\\Games\\MyGame\\game.exe")
+        self.file_browse_btn = QPushButton('Browse')
+        self.file_browse_btn.clicked.connect(self.browse_file)
+        file_layout.addWidget(self.file_input)
+        file_layout.addWidget(self.file_browse_btn)
+        direct_mode_layout.addLayout(file_layout)
+        
+        self.direct_mode_widget.setLayout(direct_mode_layout)
+        self.direct_mode_widget.setVisible(False)  # 기본적으로 숨김
+        layout.addWidget(self.direct_mode_widget)
+        
+        # === 윈도우 인식 모드 UI ===
+        self.window_mode_widget = QWidget()
+        window_mode_layout = QVBoxLayout()
+        
+        # 설명 라벨
+        info_label = QLabel('이미 실행 중인 앱의 윈도우를 찾아서 좌표만 갱신합니다.')
+        info_label.setStyleSheet("color: #666; font-style: italic;")
+        window_mode_layout.addWidget(info_label)
+        
+        self.window_mode_widget.setLayout(window_mode_layout)
+        self.window_mode_widget.setVisible(False)  # 기본적으로 숨김
+        layout.addWidget(self.window_mode_widget)
         
         # 윈도우 제목 패턴 (자동 인식용)
         window_layout = QHBoxLayout()
@@ -3035,12 +3106,34 @@ class RunAppCommand(CommandBase):
         widget.setLayout(layout)
         return widget
     
+    def _update_ui_mode(self):
+        """모드 변경에 따른 UI 업데이트"""
+        is_folder_mode = self.folder_mode_radio.isChecked()
+        is_direct_mode = self.direct_mode_radio.isChecked()
+        is_window_mode = self.window_mode_radio.isChecked()
+        
+        self.folder_mode_widget.setVisible(is_folder_mode)
+        self.direct_mode_widget.setVisible(is_direct_mode)
+        self.window_mode_widget.setVisible(is_window_mode)
+    
     def browse_folder(self):
         """폴더 선택 다이얼로그"""
         from PyQt5.QtWidgets import QFileDialog
         folder = QFileDialog.getExistingDirectory(None, "폴더 선택")
         if folder:
             self.folder_input.setText(folder)
+    
+    def browse_file(self):
+        """실행 파일 선택 다이얼로그"""
+        from PyQt5.QtWidgets import QFileDialog
+        file_path, _ = QFileDialog.getOpenFileName(
+            None, 
+            "실행 파일 선택", 
+            "", 
+            "실행 파일 (*.exe);;모든 파일 (*.*)"
+        )
+        if file_path:
+            self.file_input.setText(file_path)
     
     def parse_params(self, params):
         # 전체 명령어 문자열 재구성
@@ -3078,29 +3171,106 @@ class RunAppCommand(CommandBase):
             if tokens and tokens[0] == 'runapp':
                 tokens = tokens[1:]
             
-            if len(tokens) < 2:
-                print(f"runapp 파라미터 부족: 최소 2개 필요 (folder_path, file_pattern)")
+            if len(tokens) < 1:
+                print(f"runapp 파라미터 부족: 모드 지정 필요")
                 return {}
             
-            # 파라미터 할당
-            parsed = {
-                'folder_path': tokens[0],
-                'file_pattern': tokens[1],
-                'window_pattern': tokens[2] if len(tokens) > 2 else '',
-                'wait_for_load': True,  # 기본값
-                'auto_window': True,    # 기본값
-                'timeout': 30           # 기본값
-            }
+            # 모드 확인 (첫 번째 파라미터)
+            mode = tokens[0].lower()
             
-            # 불린/숫자 파라미터 처리
-            if len(tokens) > 3:
-                parsed['wait_for_load'] = tokens[3].lower() in ['true', '1', 'yes']
+            if mode == 'folder':
+                # 폴더 모드: runapp folder "folder_path" "file_pattern" "window_pattern" wait auto_window timeout
+                if len(tokens) < 3:
+                    print(f"runapp folder 모드 파라미터 부족: folder_path, file_pattern 필요")
+                    return {}
+                
+                parsed = {
+                    'mode': 'folder',
+                    'folder_path': tokens[1],
+                    'file_pattern': tokens[2],
+                    'window_pattern': tokens[3] if len(tokens) > 3 else '',
+                    'wait_for_load': True,  # 기본값
+                    'auto_window': True,    # 기본값
+                    'timeout': 30           # 기본값
+                }
+                
+                # 불린/숫자 파라미터 처리
+                if len(tokens) > 4:
+                    parsed['wait_for_load'] = tokens[4].lower() in ['true', '1', 'yes']
+                
+                if len(tokens) > 5:
+                    parsed['auto_window'] = tokens[5].lower() in ['true', '1', 'yes']
+                
+                if len(tokens) > 6:
+                    parsed['timeout'] = int(tokens[6])
+                    
+            elif mode == 'direct':
+                # 직접 모드: runapp direct "file_path" "window_pattern" wait auto_window timeout
+                if len(tokens) < 2:
+                    print(f"runapp direct 모드 파라미터 부족: file_path 필요")
+                    return {}
+                
+                parsed = {
+                    'mode': 'direct',
+                    'file_path': tokens[1],
+                    'window_pattern': tokens[2] if len(tokens) > 2 else '',
+                    'wait_for_load': True,  # 기본값
+                    'auto_window': True,    # 기본값
+                    'timeout': 30           # 기본값
+                }
+                
+                # 불린/숫자 파라미터 처리
+                if len(tokens) > 3:
+                    parsed['wait_for_load'] = tokens[3].lower() in ['true', '1', 'yes']
+                
+                if len(tokens) > 4:
+                    parsed['auto_window'] = tokens[4].lower() in ['true', '1', 'yes']
+                
+                if len(tokens) > 5:
+                    parsed['timeout'] = int(tokens[5])
+                    
+            elif mode == 'window':
+                # 윈도우 인식 모드: runapp window "window_pattern" timeout
+                if len(tokens) < 2:
+                    print(f"runapp window 모드 파라미터 부족: window_pattern 필요")
+                    return {}
+                
+                parsed = {
+                    'mode': 'window',
+                    'window_pattern': tokens[1],
+                    'timeout': 30           # 기본값
+                }
+                
+                # 숫자 파라미터 처리
+                if len(tokens) > 2:
+                    parsed['timeout'] = int(tokens[2])
             
-            if len(tokens) > 4:
-                parsed['auto_window'] = tokens[4].lower() in ['true', '1', 'yes']
-            
-            if len(tokens) > 5:
-                parsed['timeout'] = int(tokens[5])
+            else:
+                # 구 버전 호환성을 위해 기본적으로 폴더 모드로 처리
+                print(f"구 버전 호환성: 폴더 모드로 처리")
+                if len(tokens) < 2:
+                    print(f"runapp 파라미터 부족: 최소 2개 필요 (folder_path, file_pattern)")
+                    return {}
+                
+                parsed = {
+                    'mode': 'folder',
+                    'folder_path': tokens[0],
+                    'file_pattern': tokens[1],
+                    'window_pattern': tokens[2] if len(tokens) > 2 else '',
+                    'wait_for_load': True,  # 기본값
+                    'auto_window': True,    # 기본값
+                    'timeout': 30           # 기본값
+                }
+                
+                # 불린/숫자 파라미터 처리
+                if len(tokens) > 3:
+                    parsed['wait_for_load'] = tokens[3].lower() in ['true', '1', 'yes']
+                
+                if len(tokens) > 4:
+                    parsed['auto_window'] = tokens[4].lower() in ['true', '1', 'yes']
+                
+                if len(tokens) > 5:
+                    parsed['timeout'] = int(tokens[5])
             
             print(f"runapp 파싱 성공: {parsed}")
             return parsed
@@ -3113,39 +3283,95 @@ class RunAppCommand(CommandBase):
     def set_ui_values(self, params):
         if not params:
             return
-            
-        self.folder_input.setText(params.get('folder_path', ''))
-        self.pattern_input.setText(params.get('file_pattern', ''))
+        
+        # 모드에 따라 UI 설정
+        mode = params.get('mode', 'folder')
+        if mode == 'direct':
+            self.direct_mode_radio.setChecked(True)
+            self.file_input.setText(params.get('file_path', ''))
+        elif mode == 'window':
+            self.window_mode_radio.setChecked(True)
+        else:
+            self.folder_mode_radio.setChecked(True)
+            self.folder_input.setText(params.get('folder_path', ''))
+            self.pattern_input.setText(params.get('file_pattern', ''))
+        
+        # 공통 설정
         self.window_pattern_input.setEditText(params.get('window_pattern', ''))
-        self.wait_checkbox.setChecked(params.get('wait_for_load', True))
-        self.auto_window_checkbox.setChecked(params.get('auto_window', True))
+        
+        # 윈도우 모드가 아닐 때만 설정 (윈도우 모드는 이 옵션들이 없음)
+        if mode != 'window':
+            self.wait_checkbox.setChecked(params.get('wait_for_load', True))
+            self.auto_window_checkbox.setChecked(params.get('auto_window', True))
+            
         self.timeout_input.setValue(params.get('timeout', 30))
+        
+        # UI 모드 업데이트
+        self._update_ui_mode()
     
     def get_command_string(self):
-        folder = f'"{self.folder_input.text()}"' if ' ' in self.folder_input.text() else self.folder_input.text()
-        pattern = f'"{self.pattern_input.text()}"'
         window_pattern = f'"{self.window_pattern_input.currentText()}"' if self.window_pattern_input.currentText() else '""'
-        wait = 'true' if self.wait_checkbox.isChecked() else 'false'
-        auto_window = 'true' if self.auto_window_checkbox.isChecked() else 'false'
         timeout = str(self.timeout_input.value())
         
-        return f"runapp {folder} {pattern} {window_pattern} {wait} {auto_window} {timeout}"
+        if self.window_mode_radio.isChecked():
+            # 윈도우 모드: runapp window "window_pattern" timeout
+            return f"runapp window {window_pattern} {timeout}"
+        elif self.direct_mode_radio.isChecked():
+            # 직접 모드: runapp direct "file_path" "window_pattern" wait auto_window timeout
+            wait = 'true' if self.wait_checkbox.isChecked() else 'false'
+            auto_window = 'true' if self.auto_window_checkbox.isChecked() else 'false'
+            file_path = self.file_input.text()
+            file_path_quoted = f'"{file_path}"' if ' ' in file_path else file_path
+            return f"runapp direct {file_path_quoted} {window_pattern} {wait} {auto_window} {timeout}"
+        else:
+            # 폴더 모드: runapp folder "folder_path" "file_pattern" "window_pattern" wait auto_window timeout
+            wait = 'true' if self.wait_checkbox.isChecked() else 'false'
+            auto_window = 'true' if self.auto_window_checkbox.isChecked() else 'false'
+            folder = self.folder_input.text()
+            folder_quoted = f'"{folder}"' if ' ' in folder else folder
+            pattern = f'"{self.pattern_input.text()}"'
+            return f"runapp folder {folder_quoted} {pattern} {window_pattern} {wait} {auto_window} {timeout}"
     
     def execute(self, params, window_coords=None, processor_state=None):
-        if not params or 'folder_path' not in params or 'file_pattern' not in params:
+        if not params:
             print("오류: runapp 명령어에 필요한 파라미터가 없습니다.")
             return
         
-        folder_path = params['folder_path']
-        file_pattern = params['file_pattern']
+        # 모드 확인
+        mode = params.get('mode', 'folder')
         window_pattern = params.get('window_pattern', '')
         wait_for_load = params.get('wait_for_load', True)
         auto_window = params.get('auto_window', True)
         timeout = params.get('timeout', 30)
         
-        print(f"앱 실행: 폴더='{folder_path}', 패턴='{file_pattern}'")
+        print(f"앱 실행 모드: {mode}")
         
-        # 1. 윈도우가 이미 열려있는지 확인
+        # 윈도우 모드: 실행 없이 윈도우만 찾기
+        if mode == 'window':
+            if not window_pattern:
+                print("오류: 윈도우 모드에는 window_pattern이 필요합니다.")
+                return
+                
+            print(f"윈도우 인식 모드: '{window_pattern}' 패턴으로 윈도우 검색 중...")
+            
+            # 기존 윈도우 즉시 확인
+            existing_window = self._check_existing_window(window_pattern)
+            if existing_window:
+                print(f"✓ 윈도우를 발견했습니다: {existing_window}")
+                self._auto_select_window(existing_window)
+                return
+            
+            # 윈도우를 찾지 못했을 때 대기 시간동안 재시도
+            print(f"윈도우를 찾지 못함. {timeout}초 동안 재시도...")
+            detected_window = self._wait_for_window(window_pattern, timeout, False)
+            if detected_window:
+                print(f"✓ 윈도우 감지됨: {detected_window}")
+                self._auto_select_window(detected_window)
+            else:
+                print(f"❌ '{window_pattern}' 패턴의 윈도우를 찾을 수 없습니다. (타임아웃: {timeout}초)")
+            return
+        
+        # 1. 윈도우가 이미 열려있는지 확인 (폴더/직접 모드)
         if window_pattern and auto_window:
             existing_window = self._check_existing_window(window_pattern)
             if existing_window:
@@ -3153,42 +3379,40 @@ class RunAppCommand(CommandBase):
                 self._auto_select_window(existing_window)
                 return  # 이미 열려있으니까 실행 종료
         
-        # 2. 최신 파일 찾기 (윈도우가 없을 때만)
-        latest_file = self._find_latest_file(folder_path, file_pattern)
-        if not latest_file:
-            print(f"❌ 패턴 '{file_pattern}'에 맞는 파일을 찾을 수 없습니다.")
-            return
-        
-        print(f"✓ 발견된 최신 파일: {latest_file}")
-        
-        # 3. 앱 실행
-        try:
-            print(f"앱 실행 중...")
-            
-            # 파일이 있는 디렉토리를 작업 디렉토리로 설정
-            file_dir = os.path.dirname(latest_file)
-            print(f"작업 디렉토리를 {file_dir}로 설정")
-            
-            # 바로가기 파일(.lnk) 처리
-            if latest_file.lower().endswith('.lnk'):
-                print(f"바로가기 파일 감지: {latest_file}")
-                # Windows에서 바로가기 파일은 os.startfile로 실행
-                os.startfile(latest_file)
-                print(f"✓ 바로가기 파일이 실행되었습니다")
-            else:
-                # 일반 실행 파일 - 해당 파일의 디렉토리에서 실행
-                process = subprocess.Popen([latest_file], cwd=file_dir)
-                print(f"✓ 앱이 실행되었습니다 (PID: {process.pid}, 작업디렉토리: {file_dir})")
-        except Exception as e:
-            print(f"❌ 앱 실행 실패: {e}")
-            # 대안으로 os.startfile 시도
-            try:
-                print(f"대안 실행 시도 중...")
-                os.startfile(latest_file)
-                print(f"✓ 대안 방법으로 파일이 실행되었습니다")
-            except Exception as e2:
-                print(f"❌ 대안 실행도 실패: {e2}")
+        # 2. 모드별 파일 경로 결정
+        if mode == 'direct':
+            # 직접 모드: 절대 경로로 파일 지정
+            if 'file_path' not in params:
+                print("오류: direct 모드에는 file_path 파라미터가 필요합니다.")
                 return
+            
+            file_to_run = params['file_path']
+            print(f"직접 실행 파일: {file_to_run}")
+            
+            # 파일 존재 여부 확인
+            if not os.path.exists(file_to_run):
+                print(f"❌ 파일이 존재하지 않습니다: {file_to_run}")
+                return
+                
+        else:
+            # 폴더 모드: 최신 파일 찾기
+            if 'folder_path' not in params or 'file_pattern' not in params:
+                print("오류: folder 모드에는 folder_path, file_pattern 파라미터가 필요합니다.")
+                return
+            
+            folder_path = params['folder_path']
+            file_pattern = params['file_pattern']
+            print(f"폴더 모드 실행: 폴더='{folder_path}', 패턴='{file_pattern}'")
+            
+            file_to_run = self._find_latest_file(folder_path, file_pattern)
+            if not file_to_run:
+                print(f"❌ 패턴 '{file_pattern}'에 맞는 파일을 찾을 수 없습니다.")
+                return
+            
+            print(f"✓ 발견된 최신 파일: {file_to_run}")
+        
+        # 3. 앱 실행 (공통 로직)
+        self._execute_file(file_to_run)
         
         # 4. 윈도우 대기 및 자동 선택
         if auto_window:
@@ -3198,6 +3422,36 @@ class RunAppCommand(CommandBase):
                 self._auto_select_window(detected_window)
             else:
                 print(f"⚠️ 윈도우를 감지하지 못했습니다 (타임아웃: {timeout}초)")
+    
+    def _execute_file(self, file_path):
+        """파일 실행 공통 로직"""
+        try:
+            print(f"앱 실행 중: {file_path}")
+            
+            # 파일이 있는 디렉토리를 작업 디렉토리로 설정
+            file_dir = os.path.dirname(file_path)
+            print(f"작업 디렉토리를 {file_dir}로 설정")
+            
+            # 바로가기 파일(.lnk) 처리
+            if file_path.lower().endswith('.lnk'):
+                print(f"바로가기 파일 감지: {file_path}")
+                # Windows에서 바로가기 파일은 os.startfile로 실행
+                os.startfile(file_path)
+                print(f"✓ 바로가기 파일이 실행되었습니다")
+            else:
+                # 일반 실행 파일 - 해당 파일의 디렉토리에서 실행
+                process = subprocess.Popen([file_path], cwd=file_dir)
+                print(f"✓ 앱이 실행되었습니다 (PID: {process.pid}, 작업디렉토리: {file_dir})")
+        except Exception as e:
+            print(f"❌ 앱 실행 실패: {e}")
+            # 대안으로 os.startfile 시도
+            try:
+                print(f"대안 실행 시도 중...")
+                os.startfile(file_path)
+                print(f"✓ 대안 방법으로 파일이 실행되었습니다")
+            except Exception as e2:
+                print(f"❌ 대안 실행도 실패: {e2}")
+                return
     
     def _find_latest_file(self, folder_path, pattern):
         """최적화된 최신 파일 검색 알고리즘"""
@@ -3218,12 +3472,12 @@ class RunAppCommand(CommandBase):
                 # .git, node_modules 등 숨겨진 폴더만 스킵 (OP.GG 같은 폴더는 유지)
                 dirs[:] = [d for d in dirs if not (d.startswith('.') and len(d) > 1) and d not in ['node_modules', '__pycache__']]
                 
-                print(f"검색 중인 폴더: {root}")
-                print(f"발견된 파일들: {files}")
+                #print(f"검색 중인 폴더: {root}")
+                #print(f"발견된 파일들: {files}")
                 
                 # 패턴 매칭
                 for file in files:
-                    print(f"파일 체크: {file} vs 패턴: {pattern}")
+                    #print(f"파일 체크: {file} vs 패턴: {pattern}")
                     
                     # 다양한 방식으로 매칭 시도
                     match_found = False
@@ -3294,7 +3548,7 @@ class RunAppCommand(CommandBase):
                                    'settings', '설정', 'task manager', '작업 관리자']
                     
                     if any(skip in window_title.lower() for skip in skip_keywords):
-                        print(f"시스템 윈도우 스킵: {window_title}")
+                        # print(f"시스템 윈도우 스킵: {window_title}")  # 로그 스팸 방지를 위해 주석 처리
                         continue
                     
                     # 윈도우 패턴이 있으면 매칭 검사
@@ -3325,7 +3579,7 @@ class RunAppCommand(CommandBase):
                                         score += 25
                                     
                                     candidates.append((window_title, score, window))
-                                    print(f"후보 윈도우: {window_title} (점수: {score})")
+                                    # print(f"후보 윈도우: {window_title} (점수: {score})")  # 로그 스팸 방지를 위해 주석 처리
                             except:
                                 continue
                     else:

@@ -1,9 +1,13 @@
+# 로그 설정을 가장 먼저 import (모든 print 출력을 로그파일에도 저장)
+import logger_setup
+
 import sys
 import time
 import os
 import json
 import threading
 import subprocess
+from datetime import datetime
 import pygetwindow as gw
 import pyautogui as pag
 from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
@@ -12,7 +16,7 @@ from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QL
                              QAction, QDialog, QListWidgetItem, QMenu)
 from PyQt5.QtCore import QTimer, Qt
 
-# 분리된 모듈들 import
+# 분리된 모듈들 import (print 오버라이드 후)
 from constants import current_dir, dir_preset, bundles_dir
 from utils import (load_config, save_config, auto_detect_tesseract, take_screenshot, 
                    image_to_text, align_windows, set_pytesseract_cmd)
