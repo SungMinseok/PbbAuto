@@ -4,6 +4,7 @@ import logger_setup
 import os
 import time
 import json
+import threading
 import pyautogui as pag
 import pytesseract
 from datetime import datetime
@@ -141,6 +142,33 @@ def calculate_adjusted_coordinates(x, y, window_coords, base_resolution=(2560, 1
     return adjusted_x, adjusted_y
 
 
+def calculate_offset_coordinates(x, y, window_coords):
+    """
+    단순 윈도우 오프셋 좌표 계산 - 스케일링 없이 윈도우 시작점에 좌표를 더함
+    
+    Args:
+        x, y: 윈도우 내 상대 좌표
+        window_coords: (win_left, win_top, win_width, win_height) - 윈도우 좌표
+    
+    Returns:
+        (absolute_x, absolute_y) - 화면 절대 좌표
+    """
+    x1, y1, w1, h1 = window_coords
+    
+    # 단순히 윈도우 시작점에 상대 좌표를 더함
+    adjusted_x = x1 + x
+    adjusted_y = y1 + y
+    
+    # 디버깅 정보 출력 (필요시에만)
+    if globals().get('DEBUG_COORDINATES', False):
+        print(f"[DEBUG] calculate_offset_coordinates 호출:")
+        print(f"  - 입력 좌표: ({x}, {y})")
+        print(f"  - 윈도우 좌표: {window_coords}")
+        print(f"  - 결과 좌표: ({adjusted_x}, {adjusted_y}) (단순 오프셋)")
+    
+    return adjusted_x, adjusted_y
+
+
 def test_coordinate_adjustment():
     """좌표 조정 함수의 작동 예시"""
     # 예시: 1920x1080 기준으로 설계된 좌표 (960, 540)가 
@@ -189,3 +217,119 @@ def align_windows(windows, max_windows=4):
             window.activate()
         except:
             pass  # activate 실패 시 무시하고 계속 진행
+
+
+class KeepAlive:
+    """PC 자동 잠금 방지 클래스"""
+    
+    def __init__(self, interval_minutes=10):
+        """
+        Args:
+            interval_minutes: Keep-alive 동작 간격 (분), 기본값 10분
+        """
+        self.interval_minutes = interval_minutes
+        self.is_running = False
+        self.thread = None
+        
+    def start(self):
+        """Keep-alive 시작"""
+        if self.is_running:
+            print("⚠️ Keep-alive가 이미 실행 중입니다.")
+            return
+            
+        self.is_running = True
+        self.thread = threading.Thread(target=self._keep_alive_loop, daemon=True)
+        self.thread.start()
+        print(f"✅ Keep-alive 시작됨 (간격: {self.interval_minutes}분)")
+        
+    def stop(self):
+        """Keep-alive 중지"""
+        if not self.is_running:
+            print("⚠️ Keep-alive가 실행되고 있지 않습니다.")
+            return
+            
+        self.is_running = False
+        if self.thread:
+            self.thread.join(timeout=1)
+        print("🛑 Keep-alive 중지됨")
+        
+    def _keep_alive_loop(self):
+        """Keep-alive 메인 루프"""
+        import time
+        
+        while self.is_running:
+            try:
+                self._perform_keep_alive()
+                # 간격만큼 대기 (1초씩 체크해서 중지 신호에 빠르게 반응)
+                for _ in range(self.interval_minutes * 60):
+                    if not self.is_running:
+                        break
+                    time.sleep(1)
+            except Exception as e:
+                print(f"❌ Keep-alive 실행 중 오류: {e}")
+                time.sleep(60)  # 오류 시 1분 대기 후 재시도
+                
+    def _perform_keep_alive(self):
+        """실제 Keep-alive 동작 수행"""
+        success = False
+        
+        # 방법 1: Windows API로 시스템 상태 유지
+        try:
+            import ctypes
+            # ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED
+            ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | 0x00000001 | 0x00000002)
+            print("🔄 Windows API로 시스템 활성 상태 유지")
+            success = True
+        except Exception as e:
+            print(f"Windows API 방법 실패: {e}")
+            
+        # 방법 2: 마우스 미세 움직임 (API 실패 시 백업)
+        if not success:
+            try:
+                import pyautogui as pag
+                current_pos = pag.position()
+                # 1픽셀 이동 후 원위치
+                pag.moveRel(1, 1)
+                time.sleep(0.1)
+                pag.moveTo(current_pos.x, current_pos.y)
+                print("🖱️ 마우스 미세 움직임으로 활성 상태 유지")
+                success = True
+            except Exception as e:
+                print(f"마우스 움직임 방법 실패: {e}")
+                
+        # 방법 3: Scroll Lock 토글 (마지막 백업)
+        if not success:
+            try:
+                import pyautogui as pag
+                pag.press('scrolllock')
+                time.sleep(0.1)
+                pag.press('scrolllock')  # 다시 토글해서 원상태 복구
+                print("⌨️ Scroll Lock 토글로 활성 상태 유지")
+                success = True
+            except Exception as e:
+                print(f"키보드 토글 방법 실패: {e}")
+                
+        if not success:
+            print("⚠️ 모든 Keep-alive 방법이 실패했습니다.")
+
+
+# 전역 Keep-alive 인스턴스
+_global_keep_alive = None
+
+def start_keep_alive(interval_minutes=10):
+    """전역 Keep-alive 시작"""
+    global _global_keep_alive
+    if _global_keep_alive is None:
+        _global_keep_alive = KeepAlive(interval_minutes)
+    _global_keep_alive.start()
+    
+def stop_keep_alive():
+    """전역 Keep-alive 중지"""
+    global _global_keep_alive
+    if _global_keep_alive:
+        _global_keep_alive.stop()
+        
+def is_keep_alive_running():
+    """Keep-alive 실행 상태 확인"""
+    global _global_keep_alive
+    return _global_keep_alive and _global_keep_alive.is_running

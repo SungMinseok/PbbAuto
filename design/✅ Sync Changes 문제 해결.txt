@@ -1,0 +1,21 @@
+✅ Sync Changes 문제 해결
+
+문제 원인:
+로그 파일에 민감한 정보: logs/app_20251016.log에 Slack Webhook URL이 포함되어 있었음
+GitHub Push Protection: 보안 위험으로 판단하여 push 차단
+.gitignore 누락: logs 폴더가 .gitignore에 없어서 로그 파일이 추적됨
+해결 과정:
+✅ .gitignore에 logs/ 추가 - 앞으로 로그 파일이 추적되지 않음
+✅ 커밋에서 로그 파일 제거 - git reset으로 커밋 수정
+✅ 깨끗한 커밋 생성 - 민감한 정보 없이 다시 커밋
+✅ 성공적인 push - 원격 저장소에 정상 동기화
+현재 상태:
+🔄 브랜치 동기화 완료: "up to date with 'origin/main'"
+📝 추가된 기능들이 모두 반영됨:
+전역 로깅 시스템 (logger_setup.py)
+RunApp 커맨드 개선 (폴더/직접/윈도우 3가지 모드)
+로그 스팸 방지 개선
+남은 파일들:
+design/ 폴더의 한글 파일 2개 (설계 문서들)
+필요하면 나중에 따로 커밋하시면 됩니다
+이제 sync changes가 정상적으로 작동합니다! 🚀

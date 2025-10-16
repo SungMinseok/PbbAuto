@@ -13,15 +13,19 @@ import pyautogui as pag
 from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                              QComboBox, QPushButton, QLineEdit, QScrollArea, QFileDialog, 
                              QMessageBox, QCheckBox, QListWidget, QInputDialog, QMenuBar, 
-                             QAction, QDialog, QListWidgetItem, QMenu)
-from PyQt5.QtCore import QTimer, Qt
+                             QAction, QDialog, QListWidgetItem, QMenu, QTableWidget, 
+                             QTableWidgetItem, QHeaderView, QTabWidget, QTextEdit,
+                             QDateEdit, QTimeEdit, QDialogButtonBox, QSpinBox)
+from PyQt5.QtCore import QTimer, Qt, QDate, QTime
 
 # 분리된 모듈들 import (print 오버라이드 후)
 from constants import current_dir, dir_preset, bundles_dir
 from utils import (load_config, save_config, auto_detect_tesseract, take_screenshot, 
-                   image_to_text, align_windows, set_pytesseract_cmd)
+                   image_to_text, align_windows, set_pytesseract_cmd, start_keep_alive, 
+                   stop_keep_alive, is_keep_alive_running)
 from commands import CommandProcessor
 from dialogs import CommandPopup, TriggerEditor
+from scheduler import ScheduleManager, SchedulerEngine, Schedule, ScheduleType, ScheduleStatus
 
 
 class PbbAutoApp(QWidget):
@@ -35,12 +39,27 @@ class PbbAutoApp(QWidget):
         self.command_processor = CommandProcessor()  # 명령어 처리테스트기
         self.command_processor.set_main_app(self)  # 메인 앱 참조 설정
         self.current_file_path = None  # 현재 불러온 파일의 경로를 기억
+        
+        # 스케줄링 시스템 초기화
+        self.schedule_manager = ScheduleManager()
+        self.scheduler_engine = SchedulerEngine(self.schedule_manager)
+        self.scheduler_engine.set_command_executor(self.execute_scheduled_command)
+        
         self.initUI()
         self.prefix_input.setText('SM5')
         self.refresh_window_list()
         
         # 마우스 위치 실시간 추적 설정
         self.init_mouse_tracker()
+        
+        # 스케줄러 시작 
+        self.scheduler_engine.start()
+        
+        # 스케줄 상태 초기 업데이트
+        self.update_schedule_status()
+        
+        # Keep-alive 상태 초기 업데이트
+        self.update_keep_alive_status()
     
     def initUI(self):
         """UI 초기화"""
@@ -177,19 +196,44 @@ class PbbAutoApp(QWidget):
         self.execute_button = QPushButton('Execute (F5)', self)
         self.execute_button.setShortcut('F5')
         self.execute_button.clicked.connect(self.execute_commands)
+        
+        # Schedule button
+        self.schedule_button = QPushButton('Schedule...', self)
+        self.schedule_button.clicked.connect(self.open_schedule_dialog)
+        
+        # Schedule status label
+        self.schedule_status_label = QLabel('Schedules: 0 active', self)
+        self.schedule_status_label.setStyleSheet("color: #666; font-size: 10px;")
+        
+        # Keep-alive Controls
+        self.keep_alive_button = QPushButton('Keep-Alive: OFF', self)
+        self.keep_alive_button.clicked.connect(self.toggle_keep_alive)
+        self.keep_alive_button.setStyleSheet("font-size: 10px; padding: 2px 8px;")
+        self.keep_alive_status_label = QLabel('PC 잠금 방지: 비활성', self)
+        self.keep_alive_status_label.setStyleSheet("color: #666; font-size: 10px;")
+        
         execute_layout.addWidget(self.execute_count_label)
         execute_layout.addWidget(self.execute_count_lineEdit)
         execute_layout.addWidget(self.open_report_checkbox)
         execute_layout.addWidget(self.open_screenshot_image)
         execute_layout.addStretch()
+        execute_layout.addWidget(self.schedule_button)
         execute_layout.addWidget(self.execute_button)
 
         # Stop button
         self.stop_button = QPushButton('Stop', self)
         self.stop_button.clicked.connect(self.stop_execution)
         execute_layout.addWidget(self.stop_button)
+        
+        # Schedule status layout (아래 줄)
+        schedule_status_layout = QHBoxLayout()
+        schedule_status_layout.addWidget(self.schedule_status_label)
+        schedule_status_layout.addStretch()
+        schedule_status_layout.addWidget(self.keep_alive_status_label)
+        schedule_status_layout.addWidget(self.keep_alive_button)
 
         main_layout.addLayout(execute_layout)
+        main_layout.addLayout(schedule_status_layout)
 
     def _init_menubar(self, main_layout):
         """메뉴바 초기화"""
@@ -254,6 +298,14 @@ class PbbAutoApp(QWidget):
         if selected_window:
             window_obj = gw.getWindowsWithTitle(selected_window)[0]
             x, y, width, height = window_obj.left, window_obj.top, window_obj.width, window_obj.height
+            
+            # 디버깅 정보 출력 (필요시에만)
+            if globals().get('DEBUG_COORDINATES', False):
+                print(f"[DEBUG] 윈도우 정보:")
+                print(f"  - left: {window_obj.left}, top: {window_obj.top}")
+                print(f"  - width: {window_obj.width}, height: {window_obj.height}")
+                print(f"  - right: {window_obj.left + window_obj.width}, bottom: {window_obj.top + window_obj.height}")
+            
             self.coord_label.setText(f"Coordinates: ({x}, {y}, {width}, {height})")
             return x, y, width, height
 
@@ -1078,7 +1130,7 @@ class PbbAutoApp(QWidget):
 
     def update_window_title(self):
         """윈도우 제목 업데이트"""
-        base_title = 'PbbAuto - Test Automation (Refactored)'
+        base_title = 'Bundle Editor'
         if self.current_file_path:
             filename = os.path.basename(self.current_file_path)
             self.setWindowTitle(f'{base_title} - {filename}')
@@ -1247,6 +1299,568 @@ class PbbAutoApp(QWidget):
         except Exception as e:
             print(f"테스트 제목 추출 중 오류: {e}")
             return "테스트"
+    
+    # ========== 스케줄링 관련 메서드들 ==========
+    def open_schedule_dialog(self):
+        """스케줄 설정 다이얼로그 열기"""
+        # 현재 선택된 명령어들을 가져오기
+        commands = []
+        for i in range(self.command_list.count()):
+            item = self.command_list.item(i)
+            if item.checkState() == Qt.Checked:
+                item_text = item.text()
+                bundle_name = self._parse_bundle_display(item_text)
+                if bundle_name and bundle_name in self.bundles:
+                    # 번들인 경우 개별 명령어들로 확장
+                    bundle_structs = self.bundles[bundle_name]
+                    for struct in bundle_structs:
+                        is_checked = struct.get('checked', True)
+                        if is_checked:
+                            commands.append(struct.get('raw', ''))
+                else:
+                    commands.append(item_text.split('#')[0].strip())
+        
+        if not commands:
+            QMessageBox.warning(self, "Schedule", "스케줄할 명령어를 선택해주세요.")
+            return
+        
+        # 스케줄 다이얼로그 열기
+        dialog = ScheduleDialog(commands, self.schedule_manager, self)
+        if dialog.exec_() == QDialog.Accepted:
+            self.update_schedule_status()
+    
+    def execute_scheduled_command(self, command: str):
+        """스케줄된 명령어 실행 (스케줄러 엔진에서 호출)"""
+        try:
+            print(f"[스케줄] 명령어 실행: {command}")
+            
+            # 기존 명령어 처리기를 사용하여 실행
+            self.command_processor.process_command(command.strip())
+            
+        except Exception as e:
+            print(f"[스케줄] 명령어 실행 실패: {e}")
+            raise
+    
+    def update_schedule_status(self):
+        """스케줄 상태 라벨 업데이트"""
+        try:
+            enabled_schedules = self.schedule_manager.get_enabled_schedules()
+            count = len(enabled_schedules)
+            
+            if count == 0:
+                self.schedule_status_label.setText("Schedules: No active schedules")
+            else:
+                # 다음 실행 예정 시간 찾기
+                next_runs = [s.next_run for s in enabled_schedules if s.next_run]
+                if next_runs:
+                    next_run = min(next_runs)
+                    next_str = next_run.strftime("%H:%M")
+                    self.schedule_status_label.setText(f"Schedules: {count} active | Next: {next_str}")
+                else:
+                    self.schedule_status_label.setText(f"Schedules: {count} active")
+                    
+        except Exception as e:
+            print(f"스케줄 상태 업데이트 오류: {e}")
+            self.schedule_status_label.setText("Schedules: Error")
+    
+    def toggle_keep_alive(self):
+        """Keep-alive 토글"""
+        try:
+            if is_keep_alive_running():
+                stop_keep_alive()
+                print("Keep-alive 수동 중지됨")
+            else:
+                start_keep_alive(interval_minutes=12)
+                print("Keep-alive 수동 시작됨")
+            
+            self.update_keep_alive_status()
+        except Exception as e:
+            print(f"Keep-alive 토글 오류: {e}")
+            QMessageBox.warning(self, "Error", f"Keep-alive 토글 실패: {e}")
+    
+    def update_keep_alive_status(self):
+        """Keep-alive 상태 UI 업데이트"""
+        try:
+            if is_keep_alive_running():
+                self.keep_alive_button.setText("Keep-Alive: ON")
+                self.keep_alive_button.setStyleSheet("font-size: 10px; padding: 2px 8px; background-color: #4CAF50; color: white;")
+                self.keep_alive_status_label.setText("PC 잠금 방지: 활성 (12분 간격)")
+                self.keep_alive_status_label.setStyleSheet("color: #4CAF50; font-size: 10px;")
+            else:
+                self.keep_alive_button.setText("Keep-Alive: OFF")
+                self.keep_alive_button.setStyleSheet("font-size: 10px; padding: 2px 8px;")
+                self.keep_alive_status_label.setText("PC 잠금 방지: 비활성")
+                self.keep_alive_status_label.setStyleSheet("color: #666; font-size: 10px;")
+        except Exception as e:
+            print(f"Keep-alive 상태 업데이트 오류: {e}")
+            self.keep_alive_status_label.setText("PC 잠금 방지: 오류")
+    
+    def closeEvent(self, event):
+        """애플리케이션 종료 시 스케줄러 정리"""
+        try:
+            print("애플리케이션 종료 중...")
+            
+            # 스케줄러 엔진 정지
+            if hasattr(self, 'scheduler_engine'):
+                self.scheduler_engine.stop()
+            
+            # 스케줄 데이터 저장
+            if hasattr(self, 'schedule_manager'):
+                self.schedule_manager.save_schedules()
+            
+            event.accept()
+        except Exception as e:
+            print(f"종료 중 오류: {e}")
+            event.accept()
+
+
+class ScheduleDialog(QDialog):
+    """개선된 스케줄 관리 다이얼로그"""
+    
+    def __init__(self, commands, schedule_manager, parent=None):
+        super().__init__(parent)
+        self.commands = commands
+        self.schedule_manager = schedule_manager
+        self.parent_widget = parent  # 부모 위젯 참조 저장
+        self.editing_schedule = None  # 편집 중인 스케줄
+        self.setWindowTitle("Schedule Manager")
+        self.setModal(True)
+        self.resize(700, 600)
+        self.init_ui()
+    
+    def init_ui(self):
+        """UI 초기화"""
+        layout = QVBoxLayout()
+        
+        # 탭 위젯 생성
+        self.tab_widget = QTabWidget()
+        
+        # 탭 1: 새 스케줄 추가
+        self.add_tab = QWidget()
+        self.init_add_tab()
+        self.tab_widget.addTab(self.add_tab, "새 스케줄 추가")
+        
+        # 탭 2: 기존 스케줄 관리
+        self.manage_tab = QWidget()
+        self.init_manage_tab()
+        self.tab_widget.addTab(self.manage_tab, "스케줄 관리")
+        
+        layout.addWidget(self.tab_widget)
+        
+        # 닫기 버튼
+        button_box = QDialogButtonBox(QDialogButtonBox.Close)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+        
+        self.setLayout(layout)
+    
+    def init_add_tab(self):
+        """새 스케줄 추가 탭 초기화"""
+        layout = QVBoxLayout()
+        
+        # 명령어 표시 (스크롤 가능)
+        commands_label = QLabel("Commands to schedule:")
+        layout.addWidget(commands_label)
+        
+        self.commands_display = QTextEdit()
+        commands_text = "\n".join([f"{i+1}. {cmd}" for i, cmd in enumerate(self.commands)])
+        self.commands_display.setPlainText(commands_text)
+        self.commands_display.setReadOnly(True)
+        self.commands_display.setMaximumHeight(120)
+        self.commands_display.setStyleSheet("background: #f5f5f5; border: 1px solid #ddd;")
+        layout.addWidget(self.commands_display)
+        
+        # 스케줄 이름
+        name_layout = QHBoxLayout()
+        name_layout.addWidget(QLabel("Schedule Name:"))
+        self.name_input = QLineEdit()
+        self.name_input.setPlaceholderText("Enter schedule name...")
+        name_layout.addWidget(self.name_input)
+        layout.addLayout(name_layout)
+        
+        # 스케줄 타입
+        type_layout = QHBoxLayout()
+        type_layout.addWidget(QLabel("Repeat Type:"))
+        self.type_combo = QComboBox()
+        self.type_combo.addItems(["Once", "Daily", "Weekly", "Monthly", "Interval"])
+        self.type_combo.currentTextChanged.connect(self.on_type_changed)
+        type_layout.addWidget(self.type_combo)
+        layout.addLayout(type_layout)
+        
+        # 날짜 선택 (Once용)
+        date_layout = QHBoxLayout()
+        date_layout.addWidget(QLabel("Date:"))
+        self.date_input = QDateEdit()
+        self.date_input.setDate(QDate.currentDate())  # 오늘 날짜로 설정
+        self.date_input.setCalendarPopup(True)
+        date_layout.addWidget(self.date_input)
+        layout.addLayout(date_layout)
+        self.date_layout = date_layout
+        
+        # 시간 선택
+        time_layout = QHBoxLayout()
+        time_layout.addWidget(QLabel("Time:"))
+        self.time_input = QTimeEdit()
+        # 현재 시간으로 설정 (분은 0으로 맞춤)
+        current_time = QTime.currentTime()
+        current_time = QTime(current_time.hour(), 0)  # 분을 0으로 설정
+        self.time_input.setTime(current_time)
+        time_layout.addWidget(self.time_input)
+        layout.addLayout(time_layout)
+        
+        # 요일 선택 (Weekly용)
+        days_layout = QVBoxLayout()
+        days_layout.addWidget(QLabel("Days of Week:"))
+        self.day_checkboxes = []
+        days_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        days_row = QHBoxLayout()
+        for i, day_name in enumerate(days_names):
+            checkbox = QCheckBox(day_name)
+            if i < 5:  # 월-금 기본 선택
+                checkbox.setChecked(True)
+            self.day_checkboxes.append(checkbox)
+            days_row.addWidget(checkbox)
+        days_layout.addLayout(days_row)
+        layout.addLayout(days_layout)
+        self.days_layout = days_layout
+        
+        # 간격 설정 (Interval용)
+        interval_layout = QHBoxLayout()
+        interval_layout.addWidget(QLabel("Interval (minutes):"))
+        self.interval_input = QSpinBox()
+        self.interval_input.setRange(1, 1440)  # 1분~24시간
+        self.interval_input.setValue(60)  # 1시간 기본값
+        interval_layout.addWidget(self.interval_input)
+        layout.addLayout(interval_layout)
+        self.interval_layout = interval_layout
+        
+        # 추가 버튼
+        add_button = QPushButton("Add Schedule")
+        add_button.clicked.connect(self.add_schedule)
+        layout.addWidget(add_button)
+        
+        layout.addStretch()
+        self.add_tab.setLayout(layout)
+        
+        # 초기 상태 설정
+        self.on_type_changed("Once")
+    
+    def init_manage_tab(self):
+        """기존 스케줄 관리 탭 초기화"""
+        layout = QVBoxLayout()
+        
+        # 스케줄 목록 테이블
+        self.schedules_table = QTableWidget()
+        self.schedules_table.setColumnCount(6)
+        self.schedules_table.setHorizontalHeaderLabels(["Name", "Type", "Time", "Next Run", "Status", "Commands"])
+        
+        # 테이블 헤더 설정
+        header = self.schedules_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # Name
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # Type
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Time
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Next Run
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # Status
+        header.setSectionResizeMode(5, QHeaderView.Stretch)          # Commands
+        
+        self.schedules_table.setSelectionBehavior(QTableWidget.SelectRows)
+        layout.addWidget(self.schedules_table)
+        
+        # 버튼들
+        button_layout = QHBoxLayout()
+        
+        self.refresh_button = QPushButton("새로고침")
+        self.refresh_button.clicked.connect(self.refresh_schedules)
+        button_layout.addWidget(self.refresh_button)
+        
+        self.edit_button = QPushButton("편집")
+        self.edit_button.clicked.connect(self.edit_schedule)
+        self.edit_button.setEnabled(False)
+        button_layout.addWidget(self.edit_button)
+        
+        self.toggle_button = QPushButton("활성화/비활성화")
+        self.toggle_button.clicked.connect(self.toggle_schedule)
+        self.toggle_button.setEnabled(False)
+        button_layout.addWidget(self.toggle_button)
+        
+        self.delete_button = QPushButton("삭제")
+        self.delete_button.clicked.connect(self.delete_schedule)
+        self.delete_button.setEnabled(False)
+        self.delete_button.setStyleSheet("QPushButton { background-color: #ff6b6b; color: white; }")
+        button_layout.addWidget(self.delete_button)
+        
+        button_layout.addStretch()
+        layout.addLayout(button_layout)
+        
+        self.manage_tab.setLayout(layout)
+        
+        # 테이블 선택 변경 시 버튼 활성화/비활성화
+        self.schedules_table.selectionModel().selectionChanged.connect(self.on_schedule_selected)
+        
+        # 초기 데이터 로드
+        self.refresh_schedules()
+    
+    def on_type_changed(self, type_text):
+        """스케줄 타입 변경 시 UI 업데이트"""
+        # 모든 레이아웃 숨기기
+        for i in range(self.date_layout.count()):
+            widget = self.date_layout.itemAt(i).widget()
+            if widget:
+                widget.setVisible(False)
+        
+        for i in range(self.days_layout.count()):
+            item = self.days_layout.itemAt(i)
+            if item.widget():
+                item.widget().setVisible(False)
+            elif item.layout():
+                for j in range(item.layout().count()):
+                    widget = item.layout().itemAt(j).widget()
+                    if widget:
+                        widget.setVisible(False)
+        
+        for i in range(self.interval_layout.count()):
+            widget = self.interval_layout.itemAt(i).widget()
+            if widget:
+                widget.setVisible(False)
+        
+        # 타입별로 필요한 UI만 표시
+        if type_text == "Once":
+            for i in range(self.date_layout.count()):
+                widget = self.date_layout.itemAt(i).widget()
+                if widget:
+                    widget.setVisible(True)
+        elif type_text == "Weekly":
+            for i in range(self.days_layout.count()):
+                item = self.days_layout.itemAt(i)
+                if item.widget():
+                    item.widget().setVisible(True)
+                elif item.layout():
+                    for j in range(item.layout().count()):
+                        widget = item.layout().itemAt(j).widget()
+                        if widget:
+                            widget.setVisible(True)
+        elif type_text == "Interval":
+            for i in range(self.interval_layout.count()):
+                widget = self.interval_layout.itemAt(i).widget()
+                if widget:
+                    widget.setVisible(True)
+    
+    def add_schedule(self):
+        """새 스케줄 추가"""
+        try:
+            name = self.name_input.text().strip()
+            if not name:
+                QMessageBox.warning(self, "Error", "Please enter schedule name.")
+                return
+            
+            schedule_type_text = self.type_combo.currentText()
+            schedule_type = {
+                "Once": ScheduleType.ONCE,
+                "Daily": ScheduleType.DAILY,
+                "Weekly": ScheduleType.WEEKLY,
+                "Monthly": ScheduleType.MONTHLY,
+                "Interval": ScheduleType.INTERVAL
+            }[schedule_type_text]
+            
+            schedule_time = self.time_input.time().toString("HH:mm")
+            
+            # 타입별 추가 옵션
+            kwargs = {}
+            
+            if schedule_type == ScheduleType.ONCE:
+                kwargs['date'] = self.date_input.date().toString("yyyy-MM-dd")
+            elif schedule_type == ScheduleType.WEEKLY:
+                selected_days = []
+                for i, checkbox in enumerate(self.day_checkboxes):
+                    if checkbox.isChecked():
+                        selected_days.append(i)
+                if not selected_days:
+                    QMessageBox.warning(self, "Error", "Please select at least one day.")
+                    return
+                kwargs['days_of_week'] = selected_days
+            elif schedule_type == ScheduleType.INTERVAL:
+                kwargs['interval_minutes'] = self.interval_input.value()
+            
+            # 편집 모드인지 확인
+            if self.editing_schedule:
+                # 기존 스케줄 업데이트
+                self.editing_schedule.name = name
+                self.editing_schedule.schedule_type = schedule_type
+                self.editing_schedule.schedule_time = schedule_time
+                self.editing_schedule.date = kwargs.get('date')
+                self.editing_schedule.days_of_week = kwargs.get('days_of_week', [])
+                self.editing_schedule.interval_minutes = kwargs.get('interval_minutes', 60)
+                self.editing_schedule.calculate_next_run()
+                
+                if self.schedule_manager.update_schedule(self.editing_schedule):
+                    QMessageBox.information(self, "Success", f"Schedule '{name}' updated successfully!")
+                    self.editing_schedule = None
+                    self.clear_form()
+                    self.refresh_schedules()
+                    self.update_parent_status()
+                else:
+                    QMessageBox.warning(self, "Error", "Failed to update schedule.")
+            else:
+                # 새 스케줄 생성
+                schedule = Schedule(name, self.commands, schedule_type, schedule_time, **kwargs)
+                
+                if self.schedule_manager.add_schedule(schedule):
+                    QMessageBox.information(self, "Success", f"Schedule '{name}' created successfully!")
+                    self.clear_form()
+                    self.refresh_schedules()
+                    self.update_parent_status()
+                else:
+                    QMessageBox.warning(self, "Error", "Failed to create schedule.")
+                
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error creating/updating schedule: {e}")
+    
+    def clear_form(self):
+        """폼 초기화"""
+        self.name_input.clear()
+        self.type_combo.setCurrentIndex(0)
+        self.date_input.setDate(QDate.currentDate())
+        current_time = QTime.currentTime()
+        current_time = QTime(current_time.hour(), 0)
+        self.time_input.setTime(current_time)
+        for checkbox in self.day_checkboxes:
+            checkbox.setChecked(checkbox == self.day_checkboxes[0] or checkbox == self.day_checkboxes[1] or checkbox == self.day_checkboxes[2] or checkbox == self.day_checkboxes[3] or checkbox == self.day_checkboxes[4])
+        self.interval_input.setValue(60)
+        self.editing_schedule = None
+        
+    def refresh_schedules(self):
+        """스케줄 목록 새로고침"""
+        schedules = self.schedule_manager.get_all_schedules()
+        self.schedules_table.setRowCount(len(schedules))
+        
+        for i, schedule in enumerate(schedules):
+            # Name
+            self.schedules_table.setItem(i, 0, QTableWidgetItem(schedule.name))
+            
+            # Type
+            type_text = schedule.schedule_type.value.title()
+            self.schedules_table.setItem(i, 1, QTableWidgetItem(type_text))
+            
+            # Time
+            self.schedules_table.setItem(i, 2, QTableWidgetItem(schedule.schedule_time))
+            
+            # Next Run
+            if schedule.next_run:
+                next_run_text = schedule.next_run.strftime("%Y-%m-%d %H:%M")
+            else:
+                next_run_text = "N/A"
+            self.schedules_table.setItem(i, 3, QTableWidgetItem(next_run_text))
+            
+            # Status
+            status_text = schedule.status.value.title()
+            self.schedules_table.setItem(i, 4, QTableWidgetItem(status_text))
+            
+            # Commands (처음 2개만 표시)
+            commands_preview = ", ".join(schedule.commands[:2])
+            if len(schedule.commands) > 2:
+                commands_preview += f" ... (+{len(schedule.commands)-2} more)"
+            self.schedules_table.setItem(i, 5, QTableWidgetItem(commands_preview))
+            
+            # 스케줄 ID를 데이터로 저장
+            self.schedules_table.item(i, 0).setData(Qt.UserRole, schedule.id)
+    
+    def on_schedule_selected(self):
+        """스케줄 선택 시 버튼 활성화"""
+        selected = len(self.schedules_table.selectionModel().selectedRows()) > 0
+        self.edit_button.setEnabled(selected)
+        self.toggle_button.setEnabled(selected)
+        self.delete_button.setEnabled(selected)
+    
+    def get_selected_schedule(self):
+        """선택된 스케줄 반환"""
+        selected_rows = self.schedules_table.selectionModel().selectedRows()
+        if not selected_rows:
+            return None
+        
+        row = selected_rows[0].row()
+        schedule_id = self.schedules_table.item(row, 0).data(Qt.UserRole)
+        return self.schedule_manager.get_schedule(schedule_id)
+    
+    def edit_schedule(self):
+        """스케줄 편집"""
+        schedule = self.get_selected_schedule()
+        if not schedule:
+            return
+        
+        # 편집 모드로 전환
+        self.editing_schedule = schedule
+        
+        # 폼에 기존 데이터 설정
+        self.name_input.setText(schedule.name)
+        
+        # 타입 설정
+        type_mapping = {
+            ScheduleType.ONCE: "Once",
+            ScheduleType.DAILY: "Daily", 
+            ScheduleType.WEEKLY: "Weekly",
+            ScheduleType.MONTHLY: "Monthly",
+            ScheduleType.INTERVAL: "Interval"
+        }
+        self.type_combo.setCurrentText(type_mapping[schedule.schedule_type])
+        
+        # 시간 설정
+        time_parts = schedule.schedule_time.split(":")
+        self.time_input.setTime(QTime(int(time_parts[0]), int(time_parts[1])))
+        
+        # 타입별 옵션 설정
+        if schedule.schedule_type == ScheduleType.ONCE and schedule.date:
+            date_parts = schedule.date.split("-")
+            self.date_input.setDate(QDate(int(date_parts[0]), int(date_parts[1]), int(date_parts[2])))
+        elif schedule.schedule_type == ScheduleType.WEEKLY:
+            for i, checkbox in enumerate(self.day_checkboxes):
+                checkbox.setChecked(i in schedule.days_of_week)
+        elif schedule.schedule_type == ScheduleType.INTERVAL:
+            self.interval_input.setValue(schedule.interval_minutes)
+        
+        # 첫 번째 탭으로 전환
+        self.tab_widget.setCurrentIndex(0)
+        
+        QMessageBox.information(self, "Edit Mode", f"Editing schedule '{schedule.name}'. Make changes and click 'Add Schedule' to save.")
+    
+    def toggle_schedule(self):
+        """스케줄 활성화/비활성화"""
+        schedule = self.get_selected_schedule()
+        if not schedule:
+            return
+        
+        if schedule.status == ScheduleStatus.ENABLED:
+            schedule.status = ScheduleStatus.DISABLED
+        else:
+            schedule.status = ScheduleStatus.ENABLED
+        
+        if self.schedule_manager.update_schedule(schedule):
+            self.refresh_schedules()
+            self.update_parent_status()
+        else:
+            QMessageBox.warning(self, "Error", "Failed to update schedule status.")
+    
+    def delete_schedule(self):
+        """스케줄 삭제"""
+        schedule = self.get_selected_schedule()
+        if not schedule:
+            return
+        
+        reply = QMessageBox.question(self, "Confirm Delete", 
+                                   f"Are you sure you want to delete schedule '{schedule.name}'?",
+                                   QMessageBox.Yes | QMessageBox.No)
+        
+        if reply == QMessageBox.Yes:
+            if self.schedule_manager.remove_schedule(schedule.id):
+                self.refresh_schedules()
+                self.update_parent_status()
+                QMessageBox.information(self, "Success", f"Schedule '{schedule.name}' deleted successfully!")
+            else:
+                QMessageBox.warning(self, "Error", "Failed to delete schedule.")
+    
+    def update_parent_status(self):
+        """부모 위젯의 스케줄 상태 업데이트"""
+        if self.parent_widget and hasattr(self.parent_widget, 'update_schedule_status'):
+            self.parent_widget.update_schedule_status()
 
 
 # Main function

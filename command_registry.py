@@ -23,7 +23,7 @@ except ImportError:
     print("PIL(Pillow) 라이브러리가 필요합니다. 'pip install Pillow' 명령어로 설치해주세요.")
     PILImage = None
 from constants import cl_dir, test_results_dir
-from utils import take_screenshot, take_screenshot_with_coords, image_to_text, calculate_adjusted_coordinates
+from utils import take_screenshot, take_screenshot_with_coords, image_to_text, calculate_adjusted_coordinates, calculate_offset_coordinates
 from datetime import datetime
 import glob
 import subprocess
@@ -619,6 +619,16 @@ class ClickCommand(CommandBase):
         hold_row.addStretch()
         layout.addLayout(hold_row)
         
+        # Coordinate mode selection row
+        coord_mode_row = QHBoxLayout()
+        self.coord_mode_combo = QComboBox()
+        self.coord_mode_combo.addItems(['스케일링 (기준해상도 기반)', '오프셋 (단순 위치이동)'])
+        self.coord_mode_combo.setCurrentIndex(0)  # 기본값: 스케일링
+        coord_mode_row.addWidget(QLabel('좌표 모드:'))
+        coord_mode_row.addWidget(self.coord_mode_combo)
+        coord_mode_row.addStretch()
+        layout.addLayout(coord_mode_row)
+        
         # Helper button row
         click_helper_row = QHBoxLayout()
         self.click_get_coord_btn = QPushButton('Get Coordinates (F2)')
@@ -678,32 +688,50 @@ class ClickCommand(CommandBase):
             print(f"마우스 좌표를 가져올 수 없음: {e}")
     
     def parse_params(self, params: list) -> dict:
-        result = {'x': '', 'y': '', 'hold': 0}
+        result = {'x': '', 'y': '', 'hold': 0, 'coord_mode': 'scaled'}
         if len(params) >= 2:
             result['x'] = params[0]
             result['y'] = params[1]
-            # 세 번째 파라미터가 있으면 hold 시간으로 사용
+            # 세 번째 파라미터부터 처리
             if len(params) >= 3:
-                try:
-                    result['hold'] = float(params[2])
-                except ValueError:
-                    result['hold'] = 0
+                # 마지막 파라미터가 좌표 모드인지 확인
+                if params[-1] in ['scaled', 'offset']:
+                    result['coord_mode'] = params[-1]
+                    # hold 시간은 그 앞 파라미터
+                    if len(params) >= 4:
+                        try:
+                            result['hold'] = float(params[2])
+                        except ValueError:
+                            result['hold'] = 0
+                else:
+                    # 좌표 모드가 없으면 기본값 사용하고 hold 시간만 파싱
+                    try:
+                        result['hold'] = float(params[2])
+                    except ValueError:
+                        result['hold'] = 0
         return result
     
     def set_ui_values(self, params: dict):
         self.click_x.setText(params.get('x', ''))
         self.click_y.setText(params.get('y', ''))
         self.click_hold_input.setText(str(params.get('hold', 0)))
+        # 좌표 모드 설정
+        coord_mode = params.get('coord_mode', 'scaled')
+        if coord_mode == 'offset':
+            self.coord_mode_combo.setCurrentIndex(1)
+        else:
+            self.coord_mode_combo.setCurrentIndex(0)
     
     def get_command_string(self) -> str:
         x = self.click_x.text().strip()
         y = self.click_y.text().strip()
         hold = self.click_hold_input.text().strip()
+        coord_mode = 'offset' if self.coord_mode_combo.currentIndex() == 1 else 'scaled'
         
         if x and y and hold and hold != '0':
-            return f"click {x} {y} {hold}"
+            return f"click {x} {y} {hold} {coord_mode}"
         elif x and y:
-            return f"click {x} {y}"
+            return f"click {x} {y} {coord_mode}"
         else:
             return 'click'
     
@@ -721,7 +749,13 @@ class ClickCommand(CommandBase):
             
         try:
             x, y = int(x), int(y)
-            adjusted_x, adjusted_y = calculate_adjusted_coordinates(x, y, window_coords)
+            coord_mode = params.get('coord_mode', 'scaled')
+            
+            # 좌표 모드에 따라 다른 계산 함수 사용
+            if coord_mode == 'offset':
+                adjusted_x, adjusted_y = calculate_offset_coordinates(x, y, window_coords)
+            else:  # 'scaled'
+                adjusted_x, adjusted_y = calculate_adjusted_coordinates(x, y, window_coords)
             
             pyd.moveTo(adjusted_x, adjusted_y)
             
@@ -1069,6 +1103,15 @@ class WaitUntilCommand(CommandBase):
         tries_layout.addWidget(self.max_tries_input)
         layout.addLayout(tries_layout)
         
+        # 좌표 모드 선택
+        coord_mode_layout = QHBoxLayout()
+        coord_mode_layout.addWidget(QLabel('좌표 모드:'))
+        self.coord_mode_combo = QComboBox()
+        self.coord_mode_combo.addItems(['스케일링 (기준해상도 기반)', '오프셋 (단순 위치이동)'])
+        self.coord_mode_combo.setCurrentIndex(0)  # 기본값: 스케일링
+        coord_mode_layout.addWidget(self.coord_mode_combo)
+        layout.addLayout(coord_mode_layout)
+        
         widget.setLayout(layout)
         return widget
     
@@ -1096,6 +1139,7 @@ class WaitUntilCommand(CommandBase):
             param_idx = 6
             parsed['exact_match'] = False  # 기본값: 일부 포함
             parsed['max_tries'] = 10       # 기본값: 10회
+            parsed['coord_mode'] = 'scaled'  # 기본값: 스케일링
             
             # exact_match 옵션 확인 (exact 또는 contains)
             if len(params) > param_idx:
@@ -1108,7 +1152,17 @@ class WaitUntilCommand(CommandBase):
             
             # max_tries 확인
             if len(params) > param_idx:
-                parsed['max_tries'] = int(params[param_idx])
+                try:
+                    parsed['max_tries'] = int(params[param_idx])
+                    param_idx += 1
+                except ValueError:
+                    # 숫자가 아니면 좌표 모드일 수 있음
+                    pass
+                    
+            # coord_mode 확인 (마지막 파라미터)
+            if len(params) > param_idx:
+                if params[param_idx].lower() in ['offset', 'scaled']:
+                    parsed['coord_mode'] = params[param_idx].lower()
                     
             return parsed
         except (ValueError, IndexError):
@@ -1136,12 +1190,20 @@ class WaitUntilCommand(CommandBase):
         self.match_mode_combo.setCurrentIndex(1 if exact_match else 0)
         
         self.max_tries_input.setValue(params.get('max_tries', 10))
+        
+        # 좌표 모드 설정
+        coord_mode = params.get('coord_mode', 'scaled')
+        if coord_mode == 'offset':
+            self.coord_mode_combo.setCurrentIndex(1)
+        else:
+            self.coord_mode_combo.setCurrentIndex(0)
     
     def get_command_string(self):
         ocr_type = 'i2skr' if self.ocr_combo.currentIndex() == 1 else 'i2s'
         target_text = f'"{self.text_input.text()}"'  # 텍스트를 따옴표로 묶음
         match_mode = 'exact' if self.match_mode_combo.currentIndex() == 1 else 'contains'
-        return f"waituntil {self.x_input.value()} {self.y_input.value()} {self.width_input.value()} {self.height_input.value()} {ocr_type} {target_text} {match_mode} {self.max_tries_input.value()}"
+        coord_mode = 'offset' if self.coord_mode_combo.currentIndex() == 1 else 'scaled'
+        return f"waituntil {self.x_input.value()} {self.y_input.value()} {self.width_input.value()} {self.height_input.value()} {ocr_type} {target_text} {match_mode} {self.max_tries_input.value()} {coord_mode}"
     
     def execute(self, params, window_coords=None, processor_state=None):
         if not params or 'target_text' not in params:
@@ -1159,7 +1221,13 @@ class WaitUntilCommand(CommandBase):
         
         # 좌표 보정
         if window_coords:
-            adjusted_coords = calculate_adjusted_coordinates(x, y, window_coords)
+            coord_mode = params.get('coord_mode', 'scaled')
+            
+            # 좌표 모드에 따라 다른 계산 함수 사용
+            if coord_mode == 'offset':
+                adjusted_coords = calculate_offset_coordinates(x, y, window_coords)
+            else:  # 'scaled'
+                adjusted_coords = calculate_adjusted_coordinates(x, y, window_coords)
             x, y = adjusted_coords
         
         match_mode_text = "완전일치" if exact_match else "일부포함"
@@ -1473,6 +1541,15 @@ class TestTextCommand(CommandBase):
         match_layout.addWidget(self.match_mode_combo)
         layout.addLayout(match_layout)
         
+        # 좌표 모드 선택
+        coord_mode_layout = QHBoxLayout()
+        coord_mode_layout.addWidget(QLabel('좌표 모드:'))
+        self.coord_mode_combo = QComboBox()
+        self.coord_mode_combo.addItems(['스케일링 (기준해상도 기반)', '오프셋 (단순 위치이동)'])
+        self.coord_mode_combo.setCurrentIndex(0)  # 기본값: 스케일링
+        coord_mode_layout.addWidget(self.coord_mode_combo)
+        layout.addLayout(coord_mode_layout)
+        
         widget.setLayout(layout)
         return widget
     
@@ -1483,13 +1560,13 @@ class TestTextCommand(CommandBase):
         
         try:
             import re
-            # 정규식으로 파라미터 추출: testtext "title" x y width height ocr_type "expected_text" [match_mode]
-            pattern = r'testtext\s+"([^"]+)"\s+(-?\d+)\s+(-?\d+)\s+(\d+)\s+(\d+)\s+(\w+)\s+"([^"]*)"\s*(\w*)'
+            # 정규식으로 파라미터 추출: testtext "title" x y width height ocr_type "expected_text" [match_mode] [coord_mode]
+            pattern = r'testtext\s+"([^"]+)"\s+(-?\d+)\s+(-?\d+)\s+(\d+)\s+(\d+)\s+(\w+)\s+"([^"]*)"\s*(\w*)\s*(\w*)'
             match = re.match(pattern, full_command)
             
             if not match:
                 print(f"testtext 정규식 매칭 실패")
-                print(f"기대 형식: testtext \"title\" x y width height ocr_type \"expected_text\" [match_mode]")
+                print(f"기대 형식: testtext \"title\" x y width height ocr_type \"expected_text\" [match_mode] [coord_mode]")
                 print(f"입력된 명령어: {full_command}")
                 return {}
             
@@ -1502,7 +1579,8 @@ class TestTextCommand(CommandBase):
                 'height': int(groups[4]),
                 'ocr_type': groups[5],
                 'expected_text': groups[6],
-                'exact_match': False  # 기본값
+                'exact_match': False,  # 기본값
+                'coord_mode': 'scaled'  # 기본값
             }
             
             # match_mode 처리 (선택적)
@@ -1510,6 +1588,12 @@ class TestTextCommand(CommandBase):
                 match_mode = groups[7].lower()
                 if match_mode in ['exact', 'true', '1']:
                     parsed['exact_match'] = True
+                    
+            # coord_mode 처리 (선택적)
+            if len(groups) > 8 and groups[8]:
+                coord_mode = groups[8].lower()
+                if coord_mode in ['offset', 'scaled']:
+                    parsed['coord_mode'] = coord_mode
             
             print(f"testtext 파싱 성공: {parsed}")
             return parsed
@@ -1540,13 +1624,21 @@ class TestTextCommand(CommandBase):
         # 매칭 모드 설정 (완전일치면 1, 일부포함이면 0)
         exact_match = params.get('exact_match', False)
         self.match_mode_combo.setCurrentIndex(1 if exact_match else 0)
+        
+        # 좌표 모드 설정
+        coord_mode = params.get('coord_mode', 'scaled')
+        if coord_mode == 'offset':
+            self.coord_mode_combo.setCurrentIndex(1)
+        else:
+            self.coord_mode_combo.setCurrentIndex(0)
     
     def get_command_string(self):
         ocr_type = 'i2skr' if self.ocr_combo.currentIndex() == 1 else 'i2s'
         title = f'"{self.title_input.text()}"'  # 제목을 따옴표로 묶음
         expected_text = f'"{self.text_input.text()}"'  # 텍스트를 따옴표로 묶음
         match_mode = 'exact' if self.match_mode_combo.currentIndex() == 1 else 'contains'
-        return f"testtext {title} {self.x_input.value()} {self.y_input.value()} {self.width_input.value()} {self.height_input.value()} {ocr_type} {expected_text} {match_mode}"
+        coord_mode = 'offset' if self.coord_mode_combo.currentIndex() == 1 else 'scaled'
+        return f"testtext {title} {self.x_input.value()} {self.y_input.value()} {self.width_input.value()} {self.height_input.value()} {ocr_type} {expected_text} {match_mode} {coord_mode}"
     
     def execute(self, params, window_coords=None, processor_state=None):
         if not params or 'expected_text' not in params or 'title' not in params:
@@ -1564,7 +1656,13 @@ class TestTextCommand(CommandBase):
         
         # 좌표 보정
         if window_coords:
-            adjusted_coords = calculate_adjusted_coordinates(x, y, window_coords)
+            coord_mode = params.get('coord_mode', 'scaled')
+            
+            # 좌표 모드에 따라 다른 계산 함수 사용
+            if coord_mode == 'offset':
+                adjusted_coords = calculate_offset_coordinates(x, y, window_coords)
+            else:  # 'scaled'
+                adjusted_coords = calculate_adjusted_coordinates(x, y, window_coords)
             x, y = adjusted_coords
         
         match_mode_text = "완전일치" if exact_match else "일부포함"
@@ -2592,7 +2690,7 @@ class ExportResultCommand(CommandBase):
         # UTF-8 인코딩으로 텍스트 파일 생성
         with open(text_path, 'w', encoding='utf-8') as f:
             f.write("="*50 + "\n")
-            f.write("테스트 결과 요약 (슬랙 전송용)\n")
+            f.write("테스트 결과 요약\n")
             f.write("="*50 + "\n")
             f.write(f"📋 테스트 제목: {test_title}\n")
             f.write(f"📅 생성 시간: {current_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
@@ -2645,7 +2743,7 @@ class ExportResultCommand(CommandBase):
             # 텍스트 파일과 동일한 형태로 메시지 구성
             message_lines = []
             message_lines.append("=" * 50)
-            message_lines.append("테스트 결과 요약 (슬랙 전송용)")
+            message_lines.append("테스트 결과 요약")
             message_lines.append("=" * 50)
             message_lines.append(f"📋 테스트 제목: {test_title}")
             message_lines.append(f"📅 생성 시간: {current_time.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -2657,7 +2755,7 @@ class ExportResultCommand(CommandBase):
             
             message_lines.append("")
             message_lines.append("📊 테스트 결과:")
-            message_lines.append(f"   • 총 테스트: {total_tests}개")
+            message_lines.append(f"   • 총 테스트 항목: {total_tests}개")
             message_lines.append(f"   • Pass: {passed_tests}개")
             message_lines.append(f"   • Fail: {failed_tests}개")
             message_lines.append(f"   • 성공률: {success_rate:.1f}%")
@@ -2693,7 +2791,7 @@ class ExportResultCommand(CommandBase):
             
             # 슬랙 페이로드 구성 (간단한 텍스트 형태)
             payload = {
-                "text": f"🧪 테스트 결과 알림: {test_title}",
+                "text": f"🧪 테스트 결과 알림",
                 "attachments": [
                     {
                         "color": color,
@@ -3658,7 +3756,7 @@ class RunAppCommand(CommandBase):
                 print(f"현재 윈도우 목록 ({main_widget.window_dropdown.count()}개):")
                 for i in range(main_widget.window_dropdown.count()):
                     item_text = main_widget.window_dropdown.itemText(i)
-                    print(f"  {i}: {item_text}")
+                    #print(f"  {i}: {item_text}")
                 
                 # 감지된 윈도우를 자동 선택 (정확한 매칭)
                 found_index = -1
@@ -3683,6 +3781,76 @@ class RunAppCommand(CommandBase):
                     main_widget.window_dropdown.setCurrentIndex(found_index)
                     selected_window = main_widget.window_dropdown.currentText()
                     print(f"✓ 윈도우가 자동 선택됨: {selected_window}")
+                    
+                    # 실제 윈도우 활성화 (맨 앞으로 가져오기)
+                    try:
+                        print(f"윈도우 활성화 시도: {selected_window}")
+                        windows = gw.getWindowsWithTitle(selected_window)
+                        if windows:
+                            target_window = windows[0]
+                            print(f"윈도우 객체 찾음: {target_window}")
+                            
+                            # 여러 방법으로 윈도우 활성화 시도
+                            success = False
+                            
+                            # 방법 1: pygetwindow activate()
+                            try:
+                                target_window.activate()
+                                print("✓ activate() 성공")
+                                success = True
+                            except Exception as e1:
+                                print(f"activate() 실패: {e1}")
+                            
+                            # 방법 2: restore + maximize
+                            if not success:
+                                try:
+                                    target_window.restore()
+                                    time.sleep(0.1)
+                                    target_window.maximize()
+                                    print("✓ restore() + maximize() 성공")
+                                    success = True
+                                except Exception as e2:
+                                    print(f"restore()/maximize() 실패: {e2}")
+                            
+                            # 방법 3: Windows API 사용
+                            if not success:
+                                try:
+                                    import ctypes
+                                    from ctypes import wintypes
+                                    hwnd = target_window._hWnd
+                                    
+                                    # ShowWindow를 사용해 윈도우 표시
+                                    user32 = ctypes.windll.user32
+                                    user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                                    time.sleep(0.1)
+                                    user32.SetForegroundWindow(hwnd)
+                                    print("✓ Windows API로 윈도우 활성화 성공")
+                                    success = True
+                                except Exception as e3:
+                                    print(f"Windows API 활성화 실패: {e3}")
+                            
+                            # 방법 4: 클릭으로 활성화
+                            if not success:
+                                try:
+                                    center_x = target_window.left + target_window.width // 2
+                                    center_y = target_window.top + target_window.height // 2
+                                    import pyautogui as pag
+                                    pag.click(center_x, center_y)
+                                    print("✓ 클릭으로 윈도우 활성화 성공")
+                                    success = True
+                                except Exception as e4:
+                                    print(f"클릭 활성화도 실패: {e4}")
+                            
+                            if not success:
+                                print("⚠️ 모든 윈도우 활성화 방법이 실패했습니다.")
+                        else:
+                            print(f"⚠️ 윈도우 객체를 찾을 수 없음: {selected_window}")
+                    except Exception as e:
+                        print(f"윈도우 활성화 실패: {e}")
+                    
+                    # 윈도우 활성화 완료 대기
+                    print("윈도우 활성화 완료 대기 중...")
+                    time.sleep(1.0)  # 윈도우가 완전히 활성화될 시간 제공
                     
                     # 좌표 업데이트 강제 실행
                     print("좌표 정보를 업데이트합니다...")
@@ -3758,6 +3926,114 @@ class RunAppCommand(CommandBase):
         except Exception as e:
             print(f"prefix 추출 실패: {e}")
             return window_title[:10]  # 기본값
+    
+
+class KeepAliveCommand(CommandBase):
+    """PC 자동 잠금 방지 제어 명령어"""
+    
+    @property
+    def name(self):
+        return "keepalive"
+    
+    @property 
+    def description(self):
+        return "PC 자동 잠금 방지 기능 제어 (start/stop/status)"
+    
+    def create_ui_elements(self, form_layout):
+        """UI 요소 생성"""
+        from PyQt5.QtWidgets import QComboBox, QLabel, QSpinBox
+        
+        # Action 선택
+        self.action_combo = QComboBox()
+        self.action_combo.addItems(['start', 'stop', 'status'])
+        form_layout.addRow(QLabel("동작:"), self.action_combo)
+        
+        # Interval (start 시에만 사용)
+        self.interval_input = QSpinBox()
+        self.interval_input.setRange(1, 60)
+        self.interval_input.setValue(12)
+        self.interval_input.setSuffix(" 분")
+        form_layout.addRow(QLabel("간격 (start 시):"), self.interval_input)
+    
+    def get_command_string(self):
+        """명령어 문자열 생성"""
+        action = self.action_combo.currentText()
+        if action == 'start':
+            interval = self.interval_input.value()
+            return f"keepalive {action} {interval}"
+        else:
+            return f"keepalive {action}"
+    
+    def parse_params(self, command_str):
+        """파라미터 파싱"""
+        tokens = command_str.strip().split()
+        if len(tokens) < 2:
+            return None
+        
+        params = {'action': tokens[1]}
+        
+        # start 명령어의 경우 간격 파라미터
+        if params['action'] == 'start' and len(tokens) >= 3:
+            try:
+                params['interval'] = int(tokens[2])
+            except ValueError:
+                params['interval'] = 12  # 기본값
+        
+        return params
+    
+    def set_ui_values(self, params):
+        """UI에 파라미터 값 설정"""
+        if not params:
+            return
+        
+        action = params.get('action', 'start')
+        
+        # Action 콤보박스 설정
+        for i in range(self.action_combo.count()):
+            if self.action_combo.itemText(i) == action:
+                self.action_combo.setCurrentIndex(i)
+                break
+        
+        # Interval 설정
+        interval = params.get('interval', 12)
+        self.interval_input.setValue(interval)
+    
+    def execute(self, params, window_coords=None, processor_state=None):
+        """Keep-alive 명령어 실행"""
+        if not params:
+            print("오류: keepalive 명령어에 필요한 파라미터가 없습니다.")
+            return
+        
+        action = params.get('action', 'status')
+        
+        try:
+            from utils import start_keep_alive, stop_keep_alive, is_keep_alive_running
+            
+            if action == 'start':
+                interval = params.get('interval', 12)
+                if is_keep_alive_running():
+                    print("⚠️ Keep-alive가 이미 실행 중입니다.")
+                else:
+                    start_keep_alive(interval_minutes=interval)
+                    print(f"✅ Keep-alive 시작됨 (간격: {interval}분)")
+                    
+            elif action == 'stop':
+                if is_keep_alive_running():
+                    stop_keep_alive()
+                    print("🛑 Keep-alive 중지됨")
+                else:
+                    print("⚠️ Keep-alive가 실행되고 있지 않습니다.")
+                    
+            elif action == 'status':
+                if is_keep_alive_running():
+                    print("✅ Keep-alive 상태: 실행 중")
+                else:
+                    print("🛑 Keep-alive 상태: 중지됨")
+            else:
+                print(f"❌ 알 수 없는 Keep-alive 동작: {action}")
+                
+        except Exception as e:
+            print(f"❌ Keep-alive 명령어 실행 실패: {e}")
 
 
 # 명령어 레지스트리 - 새 명령어는 여기만 추가하면 됩니다! 🎉
@@ -3775,6 +4051,7 @@ COMMAND_REGISTRY = {
     'showresults': ShowTestResultsCommand(),  # ← 테스트 결과 표시 명령어
     'exportresult': ExportResultCommand(),  # ← 테스트 결과 다양한 형태로 내보내기 명령어 (엑셀, 텍스트, 슬랙)
     'runapp': RunAppCommand(),  # ← 앱 실행 및 윈도우 자동 설정 명령어
+    #'keepalive': KeepAliveCommand(),  # ← PC 자동 잠금 방지 제어 명령어
     # TODO: validate, export, cheat 등 추가 필요
 }
 
