@@ -180,17 +180,17 @@ exe = EXE(
     print("Spec file created: PbbAuto.spec")
     print("Included data folders:")
     if os.path.exists('bundles'):
-        print("  ✓ bundles")
+        print("  [+] bundles")
     else:
-        print("  ✗ bundles (not found, skipped)")
+        print("  [-] bundles (not found, skipped)")
     if os.path.exists('preset'):
-        print("  ✓ preset")
+        print("  [+] preset")
     else:
-        print("  ✗ preset (not found, skipped)")
+        print("  [-] preset (not found, skipped)")
     if os.path.exists('design'):
-        print("  ✓ design")
+        print("  [+] design")
     else:
-        print("  ✗ design (not found, skipped)")
+        print("  [-] design (not found, skipped)")
     
     return 'PbbAuto.spec'
 
