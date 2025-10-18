@@ -1,8 +1,15 @@
 {
-  "version": "2025.10.18.1622",
+  "version": "2025.10.18.1628",
   "build_date": "2025-10-18",
   "update_url": "https://api.github.com/repos/SungMinseok/PbbAuto/releases/latest",
   "changelog": [
+    {
+      "version": "2025.10.18.1628",
+      "date": "2025-10-18",
+      "changes": [
+        "GitHub Actions 빌드 수정 및 requirements.txt 패키지 이름 수정"
+      ]
+    },
     {
       "version": "2025.10.18.1622",
       "date": "2025-10-18",
