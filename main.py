@@ -19,7 +19,7 @@ from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QL
 from PyQt5.QtCore import QTimer, Qt, QDate, QTime, pyqtSignal
 
 # 분리된 모듈들 import (print 오버라이드 후)
-from constants import current_dir, dir_preset, bundles_dir
+from constants import current_dir, bundles_dir
 from utils import (load_config, save_config, auto_detect_tesseract, take_screenshot, 
                    image_to_text, align_windows, set_pytesseract_cmd, start_keep_alive, 
                    stop_keep_alive, is_keep_alive_running)
@@ -74,7 +74,7 @@ class PbbAutoApp(QWidget):
         self.update_keep_alive_status()
         
         # 시작 시 자동 업데이트 확인 (비동기)
-        QTimer.singleShot(2000, self.check_for_updates_on_startup)  # 2초 후 체크
+        QTimer.singleShot(3000, self.check_for_updates_on_startup)  # 3초 후 체크
     
     def initUI(self):
         """UI 초기화"""
@@ -119,7 +119,7 @@ class PbbAutoApp(QWidget):
         self.log_box = QTextEdit(self)
         self.log_box.setReadOnly(True)
         #self.log_box.setMaximumBlockCount(3)
-        self.log_box.setMaximumHeight(60)
+        self.log_box.setMaximumHeight(90)
         self.log_box.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         self.log_box.setLineWrapMode(QTextEdit.NoWrap)
         main_layout.addWidget(self.log_box)
@@ -1503,20 +1503,56 @@ class PbbAutoApp(QWidget):
     # ==================== 업데이트 관련 메서드 ====================
     
     def check_for_updates_on_startup(self):
-        """시작 시 자동 업데이트 확인 (비동기, 조용히)"""
+        """시작 시 자동 업데이트 확인 및 진행"""
         def callback(has_update, info, error_msg):
             if error_msg:
-                print(f"업데이트 확인 실패: {error_msg}")
+                self.log_error(f"업데이트 확인 실패: {error_msg}")
             elif has_update:
-                print(f"새 버전 발견: {info['version']}")
-                # 자동으로 알림 표시하지 않고 로그만 남김
-                # 사용자가 원하면 메뉴에서 수동으로 확인 가능
+                self.log(f"새 버전 발견: {info['version']}")
+                # 새 버전 발견 시 자동으로 업데이트 다이얼로그 표시
+                self._show_auto_update_dialog(info)
+            else:
+                self.log("시작 시 업데이트 확인: 최신 버전 사용 중")
         
         self.auto_updater.check_updates_async(callback)
     
+    def _show_auto_update_dialog(self, info):
+        """자동 업데이트 다이얼로그 표시 (메인 스레드에서 실행)"""
+        def show_dialog():
+            try:
+                # 완전 자동 업데이트를 원한다면 아래 줄들의 주석을 해제하고 다이얼로그 부분을 주석처리하세요
+                # self.log(f"새 버전 자동 업데이트 시작: {info['version']}")
+                # self.start_update_download(info)
+                # return
+                
+                from update_dialogs import UpdateNotificationDialog
+                from PyQt5.QtWidgets import QDialog, QMessageBox
+                
+                # 새 버전 알림 표시
+                self.log(f"🔔 새로운 버전 {info['version']} 업데이트 알림")
+                
+                dialog = UpdateNotificationDialog(info, self)
+                result = dialog.exec_()
+                
+                if result == QDialog.Accepted:
+                    # 지금 업데이트 선택
+                    self.log(f"✅ 자동 업데이트 시작: 버전 {info['version']}")
+                    self.start_update_download(info)
+                elif result == 2:  # Skip
+                    self.log(f"⏭️ 자동 업데이트 건너뛰기: 버전 {info['version']}")
+                else:
+                    self.log("❌ 자동 업데이트 취소됨")
+                    
+            except Exception as e:
+                self.log_error(f"자동 업데이트 다이얼로그 표시 중 오류: {e}")
+        
+        # 메인 스레드에서 실행되도록 QTimer 사용
+        from PyQt5.QtCore import QTimer
+        QTimer.singleShot(0, show_dialog)
+    
     def check_for_updates(self):
         """업데이트 확인 (메뉴에서 수동 호출)"""
-        print("업데이트 확인 중...")
+        self.log("수동 업데이트 확인 중...")
         
         def callback(has_update, info, error_msg):
             # 비동기 스레드에서 호출되므로 메인 스레드로 전환

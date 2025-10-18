@@ -167,7 +167,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     version='version_info.txt',
-    icon=None,
+    icon='probe.ico',
 )
 """
     with open('PbbAuto.spec', 'w', encoding='utf-8') as f:
