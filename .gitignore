@@ -12,3 +12,11 @@ bundles
 test_results
 logs/ 
 schedules.json
+
+# 빌드 관련 파일
+build/
+dist/
+*.spec
+version_info.txt
+*.pyc
+*.pyo
