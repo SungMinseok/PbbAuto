@@ -917,107 +917,107 @@ class PbbAutoApp(QWidget):
         self.on_cmd_edit()
 
     # ========== 프리셋 관련 메서드들 ==========
-    def savePreset(self):
-        """프리셋 저장"""
-        new_preset = self.add_preset_line.text().strip()
-        if not new_preset:
-            QMessageBox.warning(self, "Warning", "Preset name cannot be empty.")
-            return
-        if not new_preset.endswith('.txt'):
-            new_preset += '.txt'
-        self.save_textarea_content(new_preset)
-        self.refreshPresets()
-        print(f'saved preset successfully: {new_preset}')
+    # def savePreset(self):
+    #     """프리셋 저장"""
+    #     new_preset = self.add_preset_line.text().strip()
+    #     if not new_preset:
+    #         QMessageBox.warning(self, "Warning", "Preset name cannot be empty.")
+    #         return
+    #     if not new_preset.endswith('.txt'):
+    #         new_preset += '.txt'
+    #     self.save_textarea_content(new_preset)
+    #     self.refreshPresets()
+    #     print(f'saved preset successfully: {new_preset}')
 
-    def deletePreset(self):
-        """프리셋 삭제"""
-        current_preset = self.preset.currentText()
-        if not current_preset:
-            return
+    # def deletePreset(self):
+    #     """프리셋 삭제"""
+    #     current_preset = self.preset.currentText()
+    #     if not current_preset:
+    #         return
 
-        confirm_dialog = QMessageBox()
-        confirm_dialog.setIcon(QMessageBox.Warning)
-        confirm_dialog.setText(f"Are you sure you want to delete the preset '{current_preset}'?")
-        confirm_dialog.setWindowTitle("Confirm Deletion")
-        confirm_dialog.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
+    #     confirm_dialog = QMessageBox()
+    #     confirm_dialog.setIcon(QMessageBox.Warning)
+    #     confirm_dialog.setText(f"Are you sure you want to delete the preset '{current_preset}'?")
+    #     confirm_dialog.setWindowTitle("Confirm Deletion")
+    #     confirm_dialog.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
 
-        result = confirm_dialog.exec_()
+    #     result = confirm_dialog.exec_()
 
-        if result == QMessageBox.Ok:
-            file_path = os.path.join(dir_preset, f"{current_preset}")
-            try:
-                os.remove(file_path)
-                self.refreshPresets()
-                QMessageBox.information(self, "Success", f"Preset '{current_preset}' has been deleted.")
-            except OSError as e:
-                QMessageBox.critical(self, "Error", f"Failed to delete preset: {str(e)}")
+    #     if result == QMessageBox.Ok:
+    #         file_path = os.path.join(dir_preset, f"{current_preset}")
+    #         try:
+    #             os.remove(file_path)
+    #             self.refreshPresets()
+    #             QMessageBox.information(self, "Success", f"Preset '{current_preset}' has been deleted.")
+    #         except OSError as e:
+    #             QMessageBox.critical(self, "Error", f"Failed to delete preset: {str(e)}")
 
-    def refreshPresets(self):
-        """프리셋 새로고침"""
-        self.preset.clear()
-        self.preset_prefix.clear()
-        preset_files = [f for f in os.listdir(dir_preset) if f.endswith('.txt')]
+    # def refreshPresets(self):
+    #     """프리셋 새로고침"""
+    #     self.preset.clear()
+    #     self.preset_prefix.clear()
+    #     preset_files = [f for f in os.listdir(dir_preset) if f.endswith('.txt')]
         
-        prefixes = set()
-        prefix_to_files = {}
+    #     prefixes = set()
+    #     prefix_to_files = {}
 
-        for filename in preset_files:
-            parts = filename.split('_')
-            if len(parts) > 1:
-                prefix = parts[0]
-            else:
-                prefix = parts[0].replace('.txt', '')
+    #     for filename in preset_files:
+    #         parts = filename.split('_')
+    #         if len(parts) > 1:
+    #             prefix = parts[0]
+    #         else:
+    #             prefix = parts[0].replace('.txt', '')
 
-            prefixes.add(prefix)
+    #         prefixes.add(prefix)
 
-            if prefix not in prefix_to_files:
-                prefix_to_files[prefix] = []
-            prefix_to_files[prefix].append(filename)
+    #         if prefix not in prefix_to_files:
+    #             prefix_to_files[prefix] = []
+    #         prefix_to_files[prefix].append(filename)
 
-        def on_preset_prefix_changed():
-            current_prefix = self.preset_prefix.currentText()
-            self.preset.clear()
-            if current_prefix in prefix_to_files:
-                self.preset.addItems(prefix_to_files[current_prefix])
+    #     def on_preset_prefix_changed():
+    #         current_prefix = self.preset_prefix.currentText()
+    #         self.preset.clear()
+    #         if current_prefix in prefix_to_files:
+    #             self.preset.addItems(prefix_to_files[current_prefix])
 
-        self.preset_prefix.addItems(sorted(prefixes))
-        on_preset_prefix_changed()
-        self.preset_prefix.currentIndexChanged.connect(on_preset_prefix_changed)
+    #     self.preset_prefix.addItems(sorted(prefixes))
+    #     on_preset_prefix_changed()
+    #     self.preset_prefix.currentIndexChanged.connect(on_preset_prefix_changed)
 
-        if self.preset_prefix.count() > 0:
-            self.preset_prefix.setCurrentIndex(0)
+    #     if self.preset_prefix.count() > 0:
+    #         self.preset_prefix.setCurrentIndex(0)
 
-    def applyPreset(self):
-        """프리셋 적용"""
-        selected_preset = self.preset.currentText()
-        self.add_preset_line.setText(selected_preset)
+    # def applyPreset(self):
+    #     """프리셋 적용"""
+    #     selected_preset = self.preset.currentText()
+    #     self.add_preset_line.setText(selected_preset)
 
-        if selected_preset:
-            self.load_textarea_content(selected_preset)
+    #     if selected_preset:
+    #         self.load_textarea_content(selected_preset)
 
-    def save_textarea_content(self, filename='commands.txt'):
-        """텍스트영역 내용 저장"""
-        file_path = os.path.join(dir_preset, filename)
-        lines = [self.command_list.item(i).text() for i in range(self.command_list.count())]
-        content = '\n'.join(lines)
-        with open(file_path, 'w', encoding='utf-8') as file:
-            file.write(content)
-        print(f"Content saved to {file_path}")
+    # def save_textarea_content(self, filename='commands.txt'):
+    #     """텍스트영역 내용 저장"""
+    #     file_path = os.path.join(dir_preset, filename)
+    #     lines = [self.command_list.item(i).text() for i in range(self.command_list.count())]
+    #     content = '\n'.join(lines)
+    #     with open(file_path, 'w', encoding='utf-8') as file:
+    #         file.write(content)
+    #     print(f"Content saved to {file_path}")
 
-    def load_textarea_content(self, filename='commands.txt'):
-        """텍스트영역 내용 로드"""
-        file_path = os.path.join(dir_preset, filename)
-        try:
-            with open(file_path, 'r', encoding='utf-8') as file:
-                content = file.read()
-            self.command_list.clear()
-            for line in content.splitlines():
-                line = line.strip()
-                if line:
-                    self.add_checkable_item(line)
-            print(f"Content loaded from {file_path}")
-        except FileNotFoundError:
-            print(f"File not found: {file_path}")
+    # def load_textarea_content(self, filename='commands.txt'):
+    #     """텍스트영역 내용 로드"""
+    #     file_path = os.path.join(dir_preset, filename)
+    #     try:
+    #         with open(file_path, 'r', encoding='utf-8') as file:
+    #             content = file.read()
+    #         self.command_list.clear()
+    #         for line in content.splitlines():
+    #             line = line.strip()
+    #             if line:
+    #                 self.add_checkable_item(line)
+    #         print(f"Content loaded from {file_path}")
+    #     except FileNotFoundError:
+    #         print(f"File not found: {file_path}")
 
     # ========== 번들 관련 메서드들 ==========
     def save_bundles(self):
