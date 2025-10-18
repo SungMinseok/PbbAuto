@@ -1,0 +1,124 @@
+name: Build and Release
+
+# 트리거: 태그가 푸시되면 자동 빌드 및 릴리스
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # 예: v1.0.0, v1.2.3
+  workflow_dispatch:  # 수동 트리거도 허용
+
+jobs:
+  build:
+    runs-on: windows-latest  # Windows에서 빌드
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
+    
+    - name: Extract version from tag
+      id: get_version
+      shell: bash
+      run: |
+        if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+          VERSION=${GITHUB_REF#refs/tags/v}
+        else
+          VERSION="0.0.0-dev"
+        fi
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "Building version: $VERSION"
+    
+    - name: Update version.json
+      shell: bash
+      run: |
+        VERSION=${{ steps.get_version.outputs.VERSION }}
+        DATE=$(date +%Y-%m-%d)
+        
+        # version.json 업데이트
+        cat > version.json << EOF
+        {
+          "version": "$VERSION",
+          "build_date": "$DATE",
+          "update_url": "https://api.github.com/repos/${{ github.repository }}/releases/latest",
+          "changelog": [
+            {
+              "version": "$VERSION",
+              "date": "$DATE",
+              "changes": [
+                "자동 빌드 버전"
+              ]
+            }
+          ]
+        }
+        EOF
+        
+        cat version.json
+    
+    - name: Build EXE
+      run: |
+        python build.py
+    
+    - name: List dist contents
+      run: |
+        dir dist
+    
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ steps.get_version.outputs.VERSION }}
+        body: |
+          ## PbbAuto v${{ steps.get_version.outputs.VERSION }}
+          
+          ### 📦 다운로드
+          - **PbbAuto.exe**: 단일 실행 파일
+          - **PbbAuto_portable.zip**: 포터블 버전 (설정 파일 포함)
+          
+          ### 📝 변경사항
+          - 자동 빌드 버전
+          
+          ### 🔧 설치 방법
+          1. EXE 파일 다운로드
+          2. 원하는 위치에 압축 해제 (포터블 버전)
+          3. PbbAuto.exe 실행
+          
+          ### 📌 요구사항
+          - Windows 10 이상
+          - Tesseract OCR (선택사항)
+        draft: false
+        prerelease: false
+    
+    - name: Upload EXE to Release
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./dist/PbbAuto.exe
+        asset_name: PbbAuto.exe
+        asset_content_type: application/vnd.microsoft.portable-executable
+    
+    - name: Upload Portable ZIP to Release
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./dist/PbbAuto_v${{ steps.get_version.outputs.VERSION }}_portable.zip
+        asset_name: PbbAuto_v${{ steps.get_version.outputs.VERSION }}_portable.zip
+        asset_content_type: application/zip
+
+

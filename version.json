@@ -1,0 +1,28 @@
+{
+  "version": "1.0.1",
+  "build_date": "2025-10-18",
+  "update_url": "https://api.github.com/repos/SungMinseok/PbbAuto/releases/latest",
+  "changelog": [
+    {
+      "version": "1.0.1",
+      "date": "2025-10-18",
+      "changes": [
+        "명령어 루틴 종료 후 다음 명령어 실행 안되는 문제 해결",
+        "윈도우 선택 로직 개선 - 자동 새로고침 및 상세 디버깅",
+        "Qt 스레드 안전성 준수 - popup 닫기 시 앱 멈춤 현상 해결",
+        "popup 자동 닫기 기능 개선"
+      ]
+    },
+    {
+      "version": "1.0.0",
+      "date": "2025-10-17",
+      "changes": [
+        "CommandPopup 개선 - 현재/다음 명령어만 표시",
+        "wait 명령어 실시간 타이머 표시",
+        "화면 최상단 고정 표시 기능",
+        "자동 업데이트 시스템 추가"
+      ]
+    }
+  ]
+}
+

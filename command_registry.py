@@ -291,12 +291,26 @@ class WaitCommand(CommandBase):
         check_interval = 0.1
         total_slept = 0
         
+        # popup 참조 가져오기
+        popup = None
+        if params:
+            processor = params.get('processor')
+            if processor and hasattr(processor, 'state') and processor.state:
+                popup = processor.state.get('popup')
+        
         while total_slept < duration:
             # params에서 CommandProcessor의 실시간 stop_flag 체크
             processor = params.get('processor') if params else None
             if processor and hasattr(processor, 'stop_flag') and processor.stop_flag:
                 print(f"⚠️ Wait 중지됨 (경과시간: {total_slept:.1f}초/{duration}초)")
                 return True  # 중지됨
+            
+            # popup 타이머 업데이트 (0.5초마다)
+            if popup and hasattr(popup, 'update_timer') and int(total_slept * 10) % 5 == 0:
+                try:
+                    popup.update_timer(total_slept, duration)
+                except Exception:
+                    pass  # popup이 닫혔을 수 있음
                 
             sleep_time = min(check_interval, duration - total_slept)
             time.sleep(sleep_time)
@@ -3435,6 +3449,9 @@ class RunAppCommand(CommandBase):
             print("오류: runapp 명령어에 필요한 파라미터가 없습니다.")
             return
         
+        # CommandProcessor 참조 저장 (중지 신호 체크용)
+        self.processor = params.get('processor')
+        
         # 모드 확인
         mode = params.get('mode', 'folder')
         window_pattern = params.get('window_pattern', '')
@@ -3634,6 +3651,13 @@ class RunAppCommand(CommandBase):
         start_time = time.time()
         
         while time.time() - start_time < timeout:
+            # stop_flag 체크 (중지 버튼 대응)
+            if hasattr(self, 'processor') and self.processor:
+                if (hasattr(self.processor, 'stop_flag') and self.processor.stop_flag) or \
+                   (hasattr(self.processor, 'main_app') and self.processor.main_app and 
+                    hasattr(self.processor.main_app, 'stop_flag') and self.processor.main_app.stop_flag):
+                    print("⚠️ 윈도우 대기 중 중지 신호 감지됨")
+                    return None
             try:
                 all_windows = gw.getAllTitles()
                 
@@ -3696,13 +3720,28 @@ class RunAppCommand(CommandBase):
                     print(f"최적 윈도우 선택: {best_candidate[0]} (점수: {best_candidate[1]})")
                     
                     if wait_for_load:
-                        # 윈도우가 완전히 로드될 때까지 추가 대기
+                        # 윈도우가 완전히 로드될 때까지 추가 대기 (중지 신호 체크 포함)
                         print("윈도우 로딩 완료 대기 중...")
-                        time.sleep(2)
+                        for _ in range(20):  # 0.1초씩 20번 = 2초
+                            if hasattr(self, 'processor') and self.processor:
+                                if (hasattr(self.processor, 'stop_flag') and self.processor.stop_flag) or \
+                                   (hasattr(self.processor, 'main_app') and self.processor.main_app and 
+                                    hasattr(self.processor.main_app, 'stop_flag') and self.processor.main_app.stop_flag):
+                                    print("⚠️ 윈도우 로딩 대기 중 중지 신호 감지됨")
+                                    return None
+                            time.sleep(0.1)
                     
                     return best_candidate[0]
                 
-                time.sleep(0.5)  # 0.5초마다 체크
+                # 0.5초 대기 중에도 중지 신호 체크
+                for _ in range(5):  # 0.1초씩 5번 = 0.5초
+                    if hasattr(self, 'processor') and self.processor:
+                        if (hasattr(self.processor, 'stop_flag') and self.processor.stop_flag) or \
+                           (hasattr(self.processor, 'main_app') and self.processor.main_app and 
+                            hasattr(self.processor.main_app, 'stop_flag') and self.processor.main_app.stop_flag):
+                            print("⚠️ 윈도우 대기 중 중지 신호 감지됨 (sleep 중)")
+                            return None
+                    time.sleep(0.1)
                 
             except Exception as e:
                 print(f"윈도우 검색 중 오류: {e}")

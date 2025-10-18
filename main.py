@@ -16,7 +16,7 @@ from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QL
                              QAction, QDialog, QListWidgetItem, QMenu, QTableWidget, 
                              QTableWidgetItem, QHeaderView, QTabWidget, QTextEdit,
                              QDateEdit, QTimeEdit, QDialogButtonBox, QSpinBox)
-from PyQt5.QtCore import QTimer, Qt, QDate, QTime
+from PyQt5.QtCore import QTimer, Qt, QDate, QTime, pyqtSignal
 
 # 분리된 모듈들 import (print 오버라이드 후)
 from constants import current_dir, dir_preset, bundles_dir
@@ -26,10 +26,15 @@ from utils import (load_config, save_config, auto_detect_tesseract, take_screens
 from commands import CommandProcessor
 from dialogs import CommandPopup, TriggerEditor
 from scheduler import ScheduleManager, SchedulerEngine, Schedule, ScheduleType, ScheduleStatus
+from updater import AutoUpdater
+from update_dialogs import UpdateNotificationDialog, DownloadProgressDialog, AboutDialog
 
 
 class PbbAutoApp(QWidget):
     """메인 애플리케이션 클래스 (리팩토링된 버전)"""
+    
+    # 시그널 정의 (워커 스레드에서 메인 스레드로 통신)
+    execution_finished = pyqtSignal()
     
     def __init__(self):
         super().__init__()
@@ -45,9 +50,15 @@ class PbbAutoApp(QWidget):
         self.scheduler_engine = SchedulerEngine(self.schedule_manager)
         self.scheduler_engine.set_command_executor(self.execute_scheduled_command)
         
+        # 자동 업데이트 시스템 초기화
+        self.auto_updater = AutoUpdater()
+        
         self.initUI()
         self.prefix_input.setText('SM5')
         self.refresh_window_list()
+        
+        # 시그널 연결
+        self.execution_finished.connect(self.on_execution_finished)
         
         # 마우스 위치 실시간 추적 설정
         self.init_mouse_tracker()
@@ -60,6 +71,9 @@ class PbbAutoApp(QWidget):
         
         # Keep-alive 상태 초기 업데이트
         self.update_keep_alive_status()
+        
+        # 시작 시 자동 업데이트 확인 (비동기)
+        QTimer.singleShot(2000, self.check_for_updates_on_startup)  # 2초 후 체크
     
     def initUI(self):
         """UI 초기화"""
@@ -274,6 +288,19 @@ class PbbAutoApp(QWidget):
         # test_ocr_action = QAction('Test OCR', self)
         # test_ocr_action.triggered.connect(self.test_ocr)
         # settings_menu.addAction(test_ocr_action)
+        
+        # Help 메뉴 추가
+        help_menu = menubar.addMenu('Help')
+        
+        check_update_action = QAction('업데이트 확인', self)
+        check_update_action.triggered.connect(self.check_for_updates)
+        help_menu.addAction(check_update_action)
+        
+        help_menu.addSeparator()
+        
+        about_action = QAction('정보', self)
+        about_action.triggered.connect(self.show_about_dialog)
+        help_menu.addAction(about_action)
 
         # Place menubar at the top
         outer_layout = QVBoxLayout()
@@ -314,6 +341,10 @@ class PbbAutoApp(QWidget):
         self.stop_flag = False
         self.command_processor.stop_flag = False
         
+        # 실행 전 윈도우 목록 자동 새로고침
+        print("실행 전 윈도우 목록 자동 새로고침...")
+        self.refresh_window_list()
+        
         # Expand bundles to get flat command list for display (only from checked items)
         display_commands = []
         for i in range(self.command_list.count()):
@@ -335,6 +366,10 @@ class PbbAutoApp(QWidget):
         display_commands = [c for c in display_commands if c.strip()]
         self.popup = CommandPopup(display_commands, self)
         self.popup.show()
+        
+        # popup을 command_processor.state에 저장 (wait 명령어에서 타이머 업데이트용)
+        self.command_processor.state['popup'] = self.popup
+        
         print("명령어 실행 시작")
         self.execution_thread = threading.Thread(target=self._execute_commands_worker)
         self.execution_thread.daemon = True  # 메인 프로그램 종료 시 자동 종료
@@ -354,7 +389,10 @@ class PbbAutoApp(QWidget):
         
         print(f"테스트 세션 시작: {test_title} [{start_time.strftime('%Y-%m-%d %H:%M:%S')}]")
         
+        # 실행 전 윈도우 리스트 새로고침
+        print("윈도우 리스트 새로고침 중...")
         all_windows = gw.getAllWindows()
+        print(f"발견된 윈도우 수: {len(all_windows)}")
         selected_windows = []
         execute_count = self.execute_count_lineEdit.text()
         if execute_count == "" or int(execute_count) == 0:
@@ -368,17 +406,30 @@ class PbbAutoApp(QWidget):
                 return
 
             # 윈도우 선택
+            selected_windows = []  # 매 루프마다 초기화
             if self.multi_checkbox.isChecked():
                 for window in all_windows:
                     if window.title in [self.window_dropdown.itemText(i) for i in range(self.window_dropdown.count())]:
                         selected_windows.append(window)
             else:
                 selected_window = self.window_dropdown.currentText()
-                selected_windows = []
+                print(f"찾으려는 윈도우: '{selected_window}'")
                 for window in all_windows:
                     if window.title == selected_window:
                         selected_windows.append(window)
+                        print(f"✓ 윈도우 찾음: '{window.title}'")
                         break
+            
+            # 디버깅: 윈도우 선택 결과 확인
+            if not selected_windows:
+                print(f"⚠️ 경고: 선택된 윈도우가 없습니다. (드롭다운 선택: '{self.window_dropdown.currentText()}')")
+                print("현재 사용 가능한 윈도우 목록:")
+                for idx, window in enumerate(all_windows[:10], 1):  # 처음 10개만 표시
+                    print(f"  {idx}. '{window.title}'")
+                if len(all_windows) > 10:
+                    print(f"  ... 외 {len(all_windows) - 10}개 더")
+                print("명령어 실행을 건너뜁니다.")
+                continue  # 다음 반복으로
 
             for window in selected_windows:
                 if self.stop_flag:
@@ -459,13 +510,24 @@ class PbbAutoApp(QWidget):
             # 세션 정보 초기화
             self.command_processor.state['test_session_start'] = None
             self.command_processor.state['test_session_title'] = None
+            
+            # popup 참조 제거
+            if 'popup' in self.command_processor.state:
+                self.command_processor.state['popup'] = None
+        
+        # 명령어 실행 완료 후 시그널 emit (메인 스레드에서 popup 닫기)
+        print("명령어 실행 완료 - 시그널 emit")
+        self.execution_finished.emit()
 
     def stop_execution(self):
-        """실행 중지"""
+        """실행 중지 (개선된 버전)"""
+        print("🛑 중지 버튼 클릭됨 - 실행 중지 시작...")
+        
+        # 중지 플래그 설정
         self.stop_flag = True
         self.command_processor.stop_flag = True
         
-        # 팝업 즉시 닫기
+        # 팝업 즉시 닫기 및 참조 제거
         if hasattr(self, 'popup') and self.popup:
             try:
                 self.popup.stopped = True
@@ -474,14 +536,49 @@ class PbbAutoApp(QWidget):
             except Exception as e:
                 print(f"팝업 닫기 중 오류: {e}")
         
-        # 스레드 상태 확인
+        # popup 참조 제거
+        if hasattr(self.command_processor, 'state') and 'popup' in self.command_processor.state:
+            self.command_processor.state['popup'] = None
+        
+        # 스레드 상태 확인 및 강제 종료 준비
         if hasattr(self, 'execution_thread') and self.execution_thread:
             if self.execution_thread.is_alive():
-                print("⚠️ 실행 스레드가 아직 실행 중입니다. 중지 신호 전송됨.")
+                print("⚠️ 실행 스레드가 아직 실행 중입니다. 강제 종료 대기 중...")
+                
+                # 5초 동안 정상 종료 대기
+                import threading
+                import time
+                
+                def wait_for_thread():
+                    for i in range(50):  # 0.1초씩 50번 = 5초
+                        if not self.execution_thread.is_alive():
+                            print("✓ 실행 스레드가 정상 종료됨")
+                            return
+                        time.sleep(0.1)
+                    
+                    # 5초 후에도 살아있으면 경고
+                    if self.execution_thread.is_alive():
+                        print("⚠️ 실행 스레드가 5초 후에도 종료되지 않음")
+                        print("   - 윈도우 대기 중이거나 다른 블로킹 작업 수행 중일 수 있음")
+                        print("   - 프로그램을 재시작하는 것을 권장합니다")
+                
+                # 별도 스레드에서 대기 (UI 블로킹 방지)
+                wait_thread = threading.Thread(target=wait_for_thread, daemon=True)
+                wait_thread.start()
             else:
                 print("✓ 실행 스레드가 이미 종료됨")
         
         print("🛑 Execution stopped by user.")
+    
+    def on_execution_finished(self):
+        """명령어 실행 완료 시 호출되는 슬롯 (메인 스레드에서 실행)"""
+        print("명령어 실행 완료 - popup 닫기 (메인 스레드)")
+        if hasattr(self, 'popup') and self.popup:
+            try:
+                self.popup.close()
+                print("✓ Command popup closed")
+            except Exception as e:
+                print(f"팝업 닫기 중 오류: {e}")
 
     def align_windows(self):
         """윈도우 정렬"""
@@ -1394,6 +1491,96 @@ class PbbAutoApp(QWidget):
         except Exception as e:
             print(f"Keep-alive 상태 업데이트 오류: {e}")
             self.keep_alive_status_label.setText("PC 잠금 방지: 오류")
+    
+    # ==================== 업데이트 관련 메서드 ====================
+    
+    def check_for_updates_on_startup(self):
+        """시작 시 자동 업데이트 확인 (비동기, 조용히)"""
+        def callback(has_update, info, error_msg):
+            if error_msg:
+                print(f"업데이트 확인 실패: {error_msg}")
+            elif has_update:
+                print(f"새 버전 발견: {info['version']}")
+                # 자동으로 알림 표시하지 않고 로그만 남김
+                # 사용자가 원하면 메뉴에서 수동으로 확인 가능
+        
+        self.auto_updater.check_updates_async(callback)
+    
+    def check_for_updates(self):
+        """업데이트 확인 (메뉴에서 수동 호출)"""
+        print("업데이트 확인 중...")
+        
+        def callback(has_update, info, error_msg):
+            # 비동기 스레드에서 호출되므로 메인 스레드로 전환
+            def show_result():
+                if error_msg:
+                    # 에러 발생
+                    QMessageBox.warning(
+                        self,
+                        "업데이트 확인 실패",
+                        f"업데이트를 확인할 수 없습니다.\n\n{error_msg}"
+                    )
+                elif has_update:
+                    # 새 버전 발견
+                    dialog = UpdateNotificationDialog(info, self)
+                    result = dialog.exec_()
+                    
+                    if result == QDialog.Accepted:
+                        # 지금 업데이트 선택
+                        self.start_update_download(info)
+                    elif result == 2:  # Skip
+                        print(f"버전 {info['version']} 건너뛰기")
+                else:
+                    # 최신 버전 사용 중
+                    QMessageBox.information(
+                        self,
+                        "업데이트 확인",
+                        "현재 최신 버전을 사용하고 있습니다."
+                    )
+            
+            # 메인 스레드에서 실행
+            QTimer.singleShot(0, show_result)
+        
+        self.auto_updater.check_updates_async(callback)
+    
+    def start_update_download(self, update_info):
+        """업데이트 다운로드 시작"""
+        # 다운로드 진행률 다이얼로그 표시
+        progress_dialog = DownloadProgressDialog(self)
+        progress_dialog.show()
+        
+        def progress_callback(received, total):
+            """진행률 콜백"""
+            progress_dialog.update_progress(received, total)
+        
+        def completion_callback(success):
+            """완료 콜백"""
+            if success:
+                progress_dialog.download_complete()
+                QMessageBox.information(
+                    self,
+                    "업데이트 설치",
+                    "업데이트가 다운로드되었습니다.\n앱을 재시작하여 업데이트를 적용합니다."
+                )
+                # install_update 메서드가 자동으로 재시작함
+            else:
+                progress_dialog.close()
+                if not progress_dialog.cancelled:
+                    QMessageBox.warning(
+                        self,
+                        "업데이트 실패",
+                        "업데이트 다운로드에 실패했습니다.\n나중에 다시 시도해주세요."
+                    )
+        
+        # 다운로드 및 설치 시작
+        self.auto_updater.download_and_install(progress_callback, completion_callback)
+    
+    def show_about_dialog(self):
+        """정보 다이얼로그 표시"""
+        dialog = AboutDialog(self)
+        dialog.exec_()
+    
+    # ==================== 종료 관련 ====================
     
     def closeEvent(self, event):
         """애플리케이션 종료 시 스케줄러 정리"""

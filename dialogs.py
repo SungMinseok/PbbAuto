@@ -10,38 +10,162 @@ import time
 import pyautogui as pag
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
                              QComboBox, QLineEdit, QSpinBox, QDialogButtonBox, QWidget, 
-                             QListWidget, QStackedWidget, QMessageBox, QListWidgetItem, QMenu, QAction)
+                             QListWidget, QStackedWidget, QMessageBox, QListWidgetItem, QMenu, QAction,
+                             QApplication)
 from PyQt5.QtCore import QTimer, Qt
 from command_registry import get_all_commands, get_command_names
 
 
 class CommandPopup(QDialog):
-    """명령어 실행 진행상황을 보여주는 팝업 (기존과 동일)"""
+    """명령어 실행 진행상황을 보여주는 팝업 (작업표시줄 스타일)
+    
+    개선사항:
+    - 모든 정보를 한 줄로 압축 표시
+    - 화면 하단에 작업표시줄처럼 배치
+    - 매우 작고 컴팩트한 UI
+    - 테스트 방해 최소화
+    """
     
     def __init__(self, commands, parent=None):
-        super().__init__(parent)
+        super().__init__(None)  # parent를 None으로 설정하여 독립적인 창으로 생성
+        self.parent_widget = parent  # 참조만 저장 (중지 시그널 전달용)
         self.setWindowTitle("명령어 실행")
-        self.resize(400, 300)
-        self.layout = QVBoxLayout()
-        self.labels = []
-        for cmd in commands:
-            hbox = QHBoxLayout()
-            label = QLabel(cmd)
-            status = QLabel("")
-            hbox.addWidget(status)
-            hbox.addWidget(label)
-            self.layout.addLayout(hbox)
-            self.labels.append((status, label))
-        self.stop_btn = QPushButton("중지")
-        self.stop_btn.clicked.connect(self.stop_execution)
-        self.layout.addWidget(self.stop_btn)
-        self.setLayout(self.layout)
+        
+        # 항상 최상위에 표시, 독립적인 창으로 설정
+        self.setWindowFlags(
+            Qt.Window |  # 독립적인 윈도우
+            Qt.WindowStaysOnTopHint |  # 항상 최상단
+            Qt.FramelessWindowHint |  # 프레임 없음
+            Qt.Tool  # 작업표시줄에 표시되지 않음
+        )
+        
+        # 매우 작고 넓은 사이즈 (작업표시줄 스타일)
+        self.resize(1200, 32)  # 넓고 낮은 창
+        
+        # 전체 명령어 목록 저장
+        self.commands = commands
+        self.total_count = len(commands)
+        self.current_idx = 0
         self.stopped = False
+        
+        # UI 구성 - 모든 것을 한 줄에
+        self.layout = QHBoxLayout()
+        self.layout.setContentsMargins(8, 4, 8, 4)
+        self.layout.setSpacing(8)
+        
+        # 한 줄로 모든 정보 표시
+        self.status_label = QLabel("")
+        self.status_label.setStyleSheet("""
+            font-size: 9pt; 
+            color: #FFFFFF;
+            background-color: rgba(40, 40, 40, 220);
+            padding: 2px 8px;
+            border-radius: 3px;
+        """)
+        self.layout.addWidget(self.status_label, 1)  # stretch factor 1
+        
+        # 중지 버튼 (작게)
+        self.stop_btn = QPushButton("✕")
+        self.stop_btn.clicked.connect(self.stop_execution)
+        self.stop_btn.setFixedSize(24, 24)
+        self.stop_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #CC0000;
+                color: white;
+                border: none;
+                border-radius: 3px;
+                font-size: 10pt;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #FF0000;
+            }
+        """)
+        self.layout.addWidget(self.stop_btn)
+        
+        # 전체 배경 설정
+        self.setStyleSheet("""
+            QDialog {
+                background-color: rgba(40, 40, 40, 220);
+                border: 1px solid rgba(80, 80, 80, 180);
+                border-radius: 4px;
+            }
+        """)
+        
+        self.setLayout(self.layout)
+        
+        # 초기 표시 업데이트
+        self._update_display()
+        
+        # 화면 하단 중앙에 위치
+        self._move_to_bottom_center()
+    
+    def _move_to_bottom_center(self):
+        """창을 화면 하단 중앙에 위치 (작업표시줄 위)"""
+        screen = QApplication.primaryScreen().geometry()
+        x = (screen.width() - self.width()) // 2
+        y = screen.height() - self.height() - 50  # 화면 하단에서 50px 위 (작업표시줄 위)
+        self.move(x, y)
+    
+    def _update_display(self):
+        """한 줄로 모든 정보 표시"""
+        # 기본 형식: [3/10] ▶ 현재명령어 | 다음: 다음명령어
+        
+        if self.current_idx < self.total_count:
+            current_cmd = self.commands[self.current_idx]
+            
+            # 현재 명령어 (최대 40자로 제한)
+            if len(current_cmd) > 40:
+                current_cmd = current_cmd[:37] + "..."
+            
+            # 다음 명령어
+            next_part = ""
+            if self.current_idx + 1 < self.total_count:
+                next_cmd = self.commands[self.current_idx + 1]
+                if len(next_cmd) > 30:
+                    next_cmd = next_cmd[:27] + "..."
+                next_part = f" │ 다음: {next_cmd}"
+            
+            status_text = f"[{self.current_idx + 1}/{self.total_count}] ▶ {current_cmd}{next_part}"
+        else:
+            status_text = "✅ 모든 명령어 완료!"
+        
+        self.status_label.setText(status_text)
 
     def mark_executed(self, idx):
-        """명령어 실행 완료 표시"""
-        if idx < len(self.labels):
-            self.labels[idx][0].setText("✅")
+        """명령어 실행 완료 표시 - 다음 명령어로 이동"""
+        self.current_idx = idx + 1
+        self._update_display()
+    
+    def update_timer(self, elapsed, total):
+        """wait 명령어 타이머 업데이트 (한 줄 형식)
+        
+        Args:
+            elapsed: 경과 시간 (초)
+            total: 전체 대기 시간 (초)
+        """
+        remaining = total - elapsed
+        
+        if self.current_idx < self.total_count:
+            current_cmd = self.commands[self.current_idx]
+            
+            # 현재 명령어 (최대 30자로 제한 - 타이머 공간 확보)
+            if len(current_cmd) > 30:
+                current_cmd = current_cmd[:27] + "..."
+            
+            # 다음 명령어
+            next_part = ""
+            if self.current_idx + 1 < self.total_count:
+                next_cmd = self.commands[self.current_idx + 1]
+                if len(next_cmd) > 25:
+                    next_cmd = next_cmd[:22] + "..."
+                next_part = f" │ 다음: {next_cmd}"
+            
+            # 타이머 추가
+            timer_part = f" │ ⏱ {elapsed:.0f}s / {total:.0f}s"
+            
+            status_text = f"[{self.current_idx + 1}/{self.total_count}] ▶ {current_cmd}{next_part}{timer_part}"
+            self.status_label.setText(status_text)
 
     def stop_execution(self):
         """실행 중지"""
