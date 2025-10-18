@@ -22,7 +22,6 @@ python build.py
 
 ### 빌드 결과
 - `dist/PbbAuto.exe` - 단일 실행 파일
-- `dist/PbbAuto_v{버전}_portable.zip` - 포터블 패키지
 
 ---
 
@@ -64,9 +63,8 @@ git push origin v1.0.1
 1. ✅ Windows 환경 설정
 2. ✅ Python 및 의존성 설치
 3. ✅ EXE 파일 빌드
-4. ✅ 포터블 패키지 생성
-5. ✅ GitHub Release 생성
-6. ✅ 파일 업로드
+4. ✅ GitHub Release 생성
+5. ✅ 파일 업로드
 
 ### 빌드 상태 확인
 - **Actions**: https://github.com/SungMinseok/PbbAuto/actions
@@ -88,7 +86,6 @@ build_local.bat
 4. 설명 작성
 5. 파일 업로드:
    - `dist/PbbAuto.exe`
-   - `dist/PbbAuto_v{버전}_portable.zip`
 6. "Publish release" 클릭
 
 ---

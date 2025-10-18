@@ -34,19 +34,12 @@ echo.
 echo [3/4] 빌드 결과 확인...
 if exist "dist\PbbAuto.exe" (
     echo ✓ PbbAuto.exe 생성 완료
-    echo   크기: 
+    echo.
     dir dist\PbbAuto.exe | find "PbbAuto.exe"
 ) else (
     echo ✗ PbbAuto.exe 생성 실패
     pause
     exit /b 1
-)
-
-if exist "dist\PbbAuto_v*_portable.zip" (
-    echo ✓ 포터블 패키지 생성 완료
-    dir dist\PbbAuto_v*_portable.zip
-) else (
-    echo ✗ 포터블 패키지 생성 실패
 )
 
 echo.
@@ -58,7 +51,6 @@ echo ========================================
 echo.
 echo 생성된 파일 위치:
 echo   - dist\PbbAuto.exe
-echo   - dist\PbbAuto_v*_portable.zip
 echo.
 echo 테스트 실행하시겠습니까? (Y/N)
 set /p RUN_TEST=

@@ -28,19 +28,34 @@ def create_version_file():
     PyInstaller에서 EXE 파일에 버전 정보를 임베딩하는 데 사용
     """
     version_info = load_version_info()
-    version = version_info.get('version', '1.0.0')
+    version = version_info.get('version', '1.0.0.0')
     
-    # 버전을 4자리 형식으로 변환 (예: 1.0.0 -> 1.0.0.0)
+    # 버전을 4자리 형식으로 변환
+    # 예: 1.0.251018.1530 -> 이미 4자리
+    # 예: 1.0.0 -> 1.0.0.0
     version_parts = version.split('.')
     while len(version_parts) < 4:
         version_parts.append('0')
-    file_version = '.'.join(version_parts[:4])
+    
+    # 4자리로 제한하고 각 파트가 65535를 초과하지 않도록 처리
+    file_version_parts = []
+    for part in version_parts[:4]:
+        try:
+            num = int(part)
+            # Windows 버전은 각 파트가 0-65535 범위여야 함
+            if num > 65535:
+                num = 65535
+            file_version_parts.append(str(num))
+        except ValueError:
+            file_version_parts.append('0')
+    
+    file_version = '.'.join(file_version_parts)
     
     version_file_content = f"""
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=({','.join(version_parts[:4])}),
-    prodvers=({','.join(version_parts[:4])}),
+    filevers=({','.join(file_version_parts)}),
+    prodvers=({','.join(file_version_parts)}),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -154,9 +169,27 @@ def build_exe(spec_file):
     print("EXE 빌드 시작...")
     print("="*60 + "\n")
     
+    # 빌드 전에 build/dist 폴더 정리
+    print("기존 빌드 파일 정리 중...")
+    if os.path.exists('build'):
+        try:
+            shutil.rmtree('build')
+            print("  build/ 삭제 완료")
+        except Exception as e:
+            print(f"  build/ 삭제 실패 (무시): {e}")
+    
+    if os.path.exists('dist'):
+        try:
+            shutil.rmtree('dist')
+            print("  dist/ 삭제 완료")
+        except Exception as e:
+            print(f"  dist/ 삭제 실패 (무시): {e}")
+    
+    print()
+    
     try:
-        # PyInstaller 실행
-        cmd = ['pyinstaller', '--clean', spec_file]
+        # PyInstaller 실행 (--clean 제거)
+        cmd = ['pyinstaller', spec_file]
         result = subprocess.run(cmd, check=True)
         
         if result.returncode == 0:
@@ -178,70 +211,6 @@ def build_exe(spec_file):
         return False
 
 
-def create_portable_package():
-    """포터블 버전 패키징"""
-    version_info = load_version_info()
-    version = version_info.get('version', '1.0.0')
-    
-    package_name = f"PbbAuto_v{version}_portable"
-    package_dir = Path('dist') / package_name
-    
-    print(f"\n포터블 패키지 생성 중: {package_name}")
-    
-    try:
-        # 패키지 디렉토리 생성
-        package_dir.mkdir(parents=True, exist_ok=True)
-        
-        # EXE 파일 복사
-        shutil.copy('dist/PbbAuto.exe', package_dir / 'PbbAuto.exe')
-        
-        # 필수 파일/폴더 복사
-        files_to_copy = [
-            'version.json',
-            'bundles',
-            'preset',
-            'README.md'  # 있다면
-        ]
-        
-        for item in files_to_copy:
-            if os.path.exists(item):
-                if os.path.isfile(item):
-                    shutil.copy(item, package_dir / item)
-                else:
-                    shutil.copytree(item, package_dir / item, dirs_exist_ok=True)
-        
-        # README 파일 생성
-        readme_content = f"""PbbAuto v{version}
-=====================
-
-자동화 테스트 도구
-
-사용 방법:
-1. PbbAuto.exe를 실행하세요
-2. Tesseract OCR 경로를 설정하세요
-3. 명령어를 추가하고 실행하세요
-
-자세한 내용은 GitHub 저장소를 참조하세요.
-
-빌드 날짜: {datetime.now().strftime('%Y-%m-%d')}
-"""
-        
-        with open(package_dir / 'README.txt', 'w', encoding='utf-8') as f:
-            f.write(readme_content)
-        
-        # ZIP으로 압축
-        shutil.make_archive(
-            str(Path('dist') / package_name),
-            'zip',
-            package_dir
-        )
-        
-        print(f"✅ 포터블 패키지 생성 완료: dist/{package_name}.zip")
-        return True
-        
-    except Exception as e:
-        print(f"❌ 패키지 생성 실패: {e}")
-        return False
 
 
 def clean_build():
@@ -276,25 +245,21 @@ def main():
     print(f"빌드 날짜: {version_info.get('build_date', '알 수 없음')}")
     
     # 1. 버전 파일 생성
-    print("\n[1/5] 버전 파일 생성...")
+    print("\n[1/4] 버전 파일 생성...")
     version_file = create_version_file()
     
     # 2. Spec 파일 생성
-    print("\n[2/5] Spec 파일 생성...")
+    print("\n[2/4] Spec 파일 생성...")
     spec_file = create_spec_file()
     
     # 3. EXE 빌드
-    print("\n[3/5] EXE 빌드...")
+    print("\n[3/4] EXE 빌드...")
     if not build_exe(spec_file):
         print("\n빌드 실패!")
         return 1
     
-    # 4. 포터블 패키지 생성
-    print("\n[4/5] 포터블 패키지 생성...")
-    create_portable_package()
-    
-    # 5. 정리
-    print("\n[5/5] 정리...")
+    # 4. 정리
+    print("\n[4/4] 정리...")
     clean_build()
     
     print("\n" + "="*60)
@@ -302,7 +267,6 @@ def main():
     print("="*60)
     print("\n생성된 파일:")
     print("  - dist/PbbAuto.exe")
-    print(f"  - dist/PbbAuto_v{version_info.get('version')}_portable.zip")
     
     return 0
 

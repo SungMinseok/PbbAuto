@@ -4,7 +4,7 @@
 ```bash
 build_local.bat
 ```
-➡️ `dist/PbbAuto.exe` 생성
+➡️ `dist/PbbAuto.exe` 생성 (단일 실행 파일)
 
 ---
 

@@ -9,13 +9,17 @@ echo PbbAuto 빠른 배포 스크립트
 echo ========================================
 echo.
 
-REM 버전 입력 받기
-set /p VERSION="배포할 버전 입력 (예: 1.0.1): "
-if "%VERSION%"=="" (
-    echo 에러: 버전을 입력해주세요.
-    pause
-    exit /b 1
-)
+REM 현재 시간 기반 버전 자동 생성 (1.0.yymmdd.hhmm 형식)
+for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value') do set datetime=%%I
+set YEAR=%datetime:~2,2%
+set MONTH=%datetime:~4,2%
+set DAY=%datetime:~6,2%
+set HOUR=%datetime:~8,2%
+set MINUTE=%datetime:~10,2%
+set VERSION=1.0.%YEAR%%MONTH%%DAY%.%HOUR%%MINUTE%
+
+echo 자동 생성된 버전: %VERSION%
+echo.
 
 echo.
 echo [1/6] 로컬 변경사항 확인...
