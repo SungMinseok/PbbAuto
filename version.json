@@ -1,8 +1,15 @@
 {
-  "version": "2025.10.18.1636",
+  "version": "2025.10.18.1643",
   "build_date": "2025-10-18",
   "update_url": "https://api.github.com/repos/SungMinseok/PbbAuto/releases/latest",
   "changelog": [
+    {
+      "version": "2025.10.18.1643",
+      "date": "2025-10-18",
+      "changes": [
+        "실행 파일명 변경 (Bundle Editor.exe), 한글 인코딩 문제 수정, 폴더 존재 여부 체크 추가"
+      ]
+    },
     {
       "version": "2025.10.18.1636",
       "date": "2025-10-18",
