@@ -153,7 +153,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='Bundle Editor',
+    name='BundleEditor',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -229,7 +229,7 @@ def main():
     clean_build()
 
     print("\nBuild completed successfully!")
-    print("Generated: dist/Bundle Editor.exe")
+    print("Generated: dist/BundleEditor.exe")
 
 
 if __name__ == '__main__':
