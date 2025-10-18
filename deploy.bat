@@ -57,6 +57,6 @@ echo [7/7] Done! Check build progress in Actions.
 echo ========================================
 echo https://github.com/SungMinseok/PbbAuto/actions
 echo ========================================
-start https://github.com/SungMinseok/PbbAuto/actions
+start https://github.com/SungMinseok/PbbAuto/actions/workflows/build-and-release.yml
 
 pause

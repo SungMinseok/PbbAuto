@@ -53,7 +53,7 @@ jobs:
 
     - name: Zip release files (no version in filename)
       run: |
-        powershell Compress-Archive -Path "dist/Bundle Editor.exe","dist\version.json" -DestinationPath "dist/BundleEditor.zip"
+        powershell Compress-Archive -Path "dist/BundleEditor.exe","dist\version.json" -DestinationPath "dist/BundleEditor.zip"
 
     - name: List dist folder contents
       run: dir dist
