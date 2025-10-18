@@ -11,9 +11,9 @@ cl_dir = os.path.join(current_dir, 'checklist')
 if not os.path.exists(cl_dir):
     os.makedirs(cl_dir)
     
-dir_preset = 'preset'
-if not os.path.exists(dir_preset):
-    os.makedirs(dir_preset)
+# dir_preset = 'preset'
+# if not os.path.exists(dir_preset):
+#     os.makedirs(dir_preset)
 
 bundles_dir = os.path.join(current_dir, 'bundles')
 if not os.path.exists(bundles_dir):
