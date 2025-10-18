@@ -17,7 +17,7 @@ def load_version_info():
         with open('version.json', 'r', encoding='utf-8') as f:
             return json.load(f)
     except Exception as e:
-        print(f"⚠️  Failed to load version info: {e}")
+        print(f"[WARNING] Failed to load version info: {e}")
         return {'version': '0.0.0-dev', 'build_date': datetime.now().strftime("%Y-%m-%d")}
 
 
@@ -79,15 +79,15 @@ VSVersionInfo(
     with open('version_info.txt', 'w', encoding='utf-8') as f:
         f.write(version_file_content)
 
-    print(f"✅ Version file created: {display_version}")
+    print(f"[DONE] Version file created: {display_version}")
     return 'version_info.txt'
 
 
 def create_spec_file():
     """Generate PyInstaller spec file dynamically"""
-    # ✅ Ensure version.json exists
+    # Ensure version.json exists
     if not os.path.exists('version.json'):
-        print("⚠️  version.json not found, creating default one...")
+        print("[WARNING] version.json not found, creating default one...")
         with open('version.json', 'w', encoding='utf-8') as f:
             json.dump({
                 "version": "0.0.0-dev",
@@ -108,7 +108,7 @@ block_cipher = None
 
 a = Analysis(
     ['main.py'],
-    pathex=[os.getcwd()],  # ✅ Include current directory
+    pathex=[os.getcwd()],  # Include current directory
     binaries=[],
     datas=[
         {datas_str},
@@ -173,14 +173,14 @@ exe = EXE(
     with open('PbbAuto.spec', 'w', encoding='utf-8') as f:
         f.write(spec_content)
 
-    print("✅ Spec file created: PbbAuto.spec")
+    print("[DONE] Spec file created: PbbAuto.spec")
     return 'PbbAuto.spec'
 
 
 def build_exe(spec_file):
     """Run PyInstaller build"""
     print("\n" + "=" * 60)
-    print("🚀 Starting EXE build...")
+    print("Starting EXE build...")
     print("=" * 60 + "\n")
 
     for folder in ['build', 'dist']:
@@ -189,10 +189,10 @@ def build_exe(spec_file):
     try:
         cmd = ['pyinstaller', '--clean', spec_file]
         subprocess.run(cmd, check=True)
-        print("\n✅ Build successful! EXE located in: dist/Bundle Editor.exe")
+        print("\n[DONE] Build successful! EXE located in: dist/Bundle Editor.exe")
         return True
     except Exception as e:
-        print(f"\n❌ Build failed: {e}")
+        print(f"\n[FAILED] Build failed: {e}")
         return False
 
 
@@ -203,7 +203,7 @@ def clean_build():
     for f in ['version_info.txt']:
         if os.path.exists(f):
             os.remove(f)
-    print("🧹 Cleanup completed!")
+    print("[CLEANUP] Cleanup completed!")
 
 
 def main():
@@ -228,7 +228,7 @@ def main():
     print("\n[4/4] Cleaning up...")
     clean_build()
 
-    print("\n🎉 Build completed successfully!")
+    print("\nBuild completed successfully!")
     print("Generated: dist/Bundle Editor.exe")
 
 
