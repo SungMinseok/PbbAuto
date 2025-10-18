@@ -32,13 +32,37 @@ git status
 
 echo.
 echo [3/7] 변경사항 커밋...
-set /p COMMIT_MSG="커밋 메시지 입력 (Enter=기본): "
+
+REM ======= 커밋 메시지 자동 모음 기능 추가 =======
+set "COMMIT_MSG="
+set /p COMMIT_MSG="커밋 메시지 입력 (Enter=자동): "
 if "%COMMIT_MSG%"=="" (
-    set COMMIT_MSG=v%VERSION% 배포 - %CHANGELOG_MSG%
+    REM 최근 태그명 추출
+    for /f "delims=" %%i in ('git describe --tags --abbrev=0') do set LAST_TAG=%%i
+
+    REM 최근 태그~HEAD까지 커밋 메시지 임시 파일로 저장
+    git log %LAST_TAG%..HEAD --oneline > recent_commits.txt
+
+    REM 커밋 메시지 본문 생성
+    set "AUTO_COMMIT_MSG=v%VERSION% 배포 - %CHANGELOG_MSG%\n[변경내역]"
+    for /f "delims=" %%L in (recent_commits.txt) do (
+        set "LINE=%%L"
+        set "AUTO_COMMIT_MSG=!AUTO_COMMIT_MSG!\n- !LINE!"
+    )
+
+    REM 임시 파일 저장
+    echo !AUTO_COMMIT_MSG! > commit_message.txt
+
+    git add .
+    git commit -F commit_message.txt
+) else (
+    git add .
+    git commit -m "%COMMIT_MSG%"
 )
 
-git add .
-git commit -m "%COMMIT_MSG%"
+REM 커밋 메시지 임시파일 삭제
+if exist recent_commits.txt del recent_commits.txt
+if exist commit_message.txt del commit_message.txt
 
 echo.
 echo [4/7] 메인 브랜치에 푸시...
@@ -66,4 +90,3 @@ echo 빌드 완료 후 릴리스 페이지:
 echo https://github.com/SungMinseok/PbbAuto/releases
 echo.
 pause
-
