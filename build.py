@@ -23,29 +23,19 @@ def load_version_info():
 
 
 def create_version_file():
-    """
-    Create Windows version file
-    Used by PyInstaller to embed version info in EXE
-    """
+    """Create Windows version file for PyInstaller"""
     version_info = load_version_info()
     version = version_info.get('version', '2025.01.01.0000')
-    
-    # CalVer format: YYYY.MM.DD.HHMM
-    # Windows version file requires each part to be 0-65535
-    # YYYY always exceeds 65535, so needs processing
-    
+
     version_parts = version.split('.')
     while len(version_parts) < 4:
         version_parts.append('0')
-    
-    # For Windows version file: limit each part to 0-65535 range
+
     file_version_parts = []
     for i, part in enumerate(version_parts[:4]):
         try:
             num = int(part)
-            # If first part (YYYY) exceeds 65535, limit it
             if num > 65535:
-                # Convert YYYY -> YY (2025 -> 25)
                 if i == 0 and num > 2000:
                     num = num % 100  # 2025 -> 25
                 else:
@@ -53,10 +43,10 @@ def create_version_file():
             file_version_parts.append(str(num))
         except ValueError:
             file_version_parts.append('0')
-    
+
     file_version = '.'.join(file_version_parts)
-    display_version = version  # Original version to display
-    
+    display_version = version
+
     version_file_content = f"""
 VSVersionInfo(
   ffi=FixedFileInfo(
@@ -74,45 +64,36 @@ VSVersionInfo(
       [
       StringTable(
         u'040904B0',
-        [StringStruct(u'CompanyName', u'PbbAuto Team'),
-        StringStruct(u'FileDescription', u'PbbAuto - Automation Test Tool'),
+        [StringStruct(u'CompanyName', u'Pbb Team'),
+        StringStruct(u'FileDescription', u'Bundle Editor - Automation Test Tool'),
         StringStruct(u'FileVersion', u'{display_version}'),
-        StringStruct(u'InternalName', u'PbbAuto'),
+        StringStruct(u'InternalName', u'Bundle Editor'),
         StringStruct(u'LegalCopyright', u'Copyright 2025'),
-        StringStruct(u'OriginalFilename', u'PbbAuto.exe'),
-        StringStruct(u'ProductName', u'PbbAuto'),
+        StringStruct(u'OriginalFilename', u'Bundle Editor.exe'),
+        StringStruct(u'ProductName', u'Bundle Editor'),
         StringStruct(u'ProductVersion', u'{display_version}')])
       ]),
     VarFileInfo([VarStruct(u'Translation', [1033, 1200])])
   ]
 )
 """
-    
     with open('version_info.txt', 'w', encoding='utf-8') as f:
         f.write(version_file_content)
-    
+
     print(f"Version file created: {display_version} (Windows: {file_version})")
     return 'version_info.txt'
 
 
 def create_spec_file():
-    """Create PyInstaller spec file"""
-    
-    # Check which folders exist and build datas list
-    datas_list = [
-        "('version.json', '.')",
-    ]
-    
-    # Add folders only if they exist
-    if os.path.exists('bundles'):
-        datas_list.append("('bundles', 'bundles')")
-    if os.path.exists('preset'):
-        datas_list.append("('preset', 'preset')")
-    if os.path.exists('design'):
-        datas_list.append("('design', 'design')")
-    
+    """Create PyInstaller spec file dynamically"""
+    datas_list = ["('version.json', '.')"]
+
+    for folder in ['bundles', 'preset', 'design']:
+        if os.path.exists(folder):
+            datas_list.append(f"('{folder}', '{folder}')")
+
     datas_str = ",\n        ".join(datas_list)
-    
+
     spec_content = f"""# -*- mode: python ; coding: utf-8 -*-
 
 block_cipher = None
@@ -126,7 +107,7 @@ a = Analysis(
     ],
     hiddenimports=[
         'PyQt5.QtCore',
-        'PyQt5.QtGui', 
+        'PyQt5.QtGui',
         'PyQt5.QtWidgets',
         'pyautogui',
         'pygetwindow',
@@ -140,7 +121,15 @@ a = Analysis(
     hookspath=[],
     hooksconfig={{}},
     runtime_hooks=[],
-    excludes=[],
+    excludes=[
+        'tkinter',
+        'test',
+        'unittest',
+        'distutils',
+        'pydoc',
+        'extension-output-ms-dotnettools.vscode-dotnet-runtime-#1-.NET Install Tool',
+        'ms-dotnettools.vscode-dotnet-runtime'
+    ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
@@ -163,146 +152,84 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False,  # Hide console for GUI app
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    version='version_info.txt',  # Version info file
-    icon=None,  # TODO: Add icon file
+    version='version_info.txt',
+    icon=None,
 )
 """
-    
-    with open('PbbAuto.spec', 'w', encoding='utf-8') as f:
+    with open('Bundle Editor.spec', 'w', encoding='utf-8') as f:
         f.write(spec_content)
-    
-    print("Spec file created: PbbAuto.spec")
-    print("Included data folders:")
-    if os.path.exists('bundles'):
-        print("  [+] bundles")
-    else:
-        print("  [-] bundles (not found, skipped)")
-    if os.path.exists('preset'):
-        print("  [+] preset")
-    else:
-        print("  [-] preset (not found, skipped)")
-    if os.path.exists('design'):
-        print("  [+] design")
-    else:
-        print("  [-] design (not found, skipped)")
-    
-    return 'PbbAuto.spec'
+
+    print("Spec file created: Bundle Editor.spec")
+    return 'Bundle Editor.spec'
 
 
 def build_exe(spec_file):
     """Build EXE with PyInstaller"""
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Starting EXE build...")
-    print("="*60 + "\n")
-    
-    # Clean build/dist folders before building
-    print("Cleaning existing build files...")
-    if os.path.exists('build'):
-        try:
-            shutil.rmtree('build')
-            print("  build/ deleted")
-        except Exception as e:
-            print(f"  build/ deletion failed (ignored): {e}")
-    
-    if os.path.exists('dist'):
-        try:
-            shutil.rmtree('dist')
-            print("  dist/ deleted")
-        except Exception as e:
-            print(f"  dist/ deletion failed (ignored): {e}")
-    
-    print()
-    
+    print("=" * 60 + "\n")
+
+    for folder in ['build', 'dist']:
+        if os.path.exists(folder):
+            shutil.rmtree(folder, ignore_errors=True)
+
     try:
-        # Run PyInstaller (without --clean)
-        cmd = ['pyinstaller', spec_file]
+        cmd = ['pyinstaller', '--clean', spec_file]
         result = subprocess.run(cmd, check=True)
-        
+
         if result.returncode == 0:
-            print("\n" + "="*60)
-            print("Build successful!")
-            print("="*60)
-            print(f"Executable: dist/Bundle Editor.exe")
+            print("\nBuild successful! Executable: dist/Bundle Editor.exe")
             return True
         else:
             print("\nBuild failed")
             return False
-            
-    except subprocess.CalledProcessError as e:
+    except Exception as e:
         print(f"\nError during build: {e}")
         return False
-    except FileNotFoundError:
-        print("\nPyInstaller is not installed.")
-        print("Install it with: pip install pyinstaller")
-        return False
-
-
 
 
 def clean_build():
-    """Clean up build temporary files"""
-    print("\nCleaning up build files...")
-    
-    dirs_to_clean = ['build', '__pycache__']
-    files_to_clean = ['version_info.txt']
-    
-    for d in dirs_to_clean:
-        if os.path.exists(d):
-            shutil.rmtree(d)
-            print(f"  Deleted: {d}/")
-    
-    for f in files_to_clean:
+    """Clean temporary build files"""
+    for d in ['build', '__pycache__']:
+        shutil.rmtree(d, ignore_errors=True)
+    for f in ['version_info.txt']:
         if os.path.exists(f):
             os.remove(f)
-            print(f"  Deleted: {f}")
-    
     print("Cleanup completed!")
 
 
 def main():
-    """Main build process"""
-    print("="*60)
-    print("PbbAuto Build Script")
-    print("="*60)
-    
-    # Load and display version info
+    print("=" * 60)
+    print("Bundle Editor Build Script")
+    print("=" * 60)
+
     version_info = load_version_info()
-    print(f"\nVersion: {version_info.get('version', 'unknown')}")
+    print(f"Version: {version_info.get('version', 'unknown')}")
     print(f"Build date: {version_info.get('build_date', 'unknown')}")
-    
-    # 1. Create version file
+
     print("\n[1/4] Creating version file...")
     version_file = create_version_file()
-    
-    # 2. Create spec file
+
     print("\n[2/4] Creating spec file...")
     spec_file = create_spec_file()
-    
-    # 3. Build EXE
+
     print("\n[3/4] Building EXE...")
     if not build_exe(spec_file):
-        print("\nBuild failed!")
         return 1
-    
-    # 4. Clean up
+
     print("\n[4/4] Cleaning up...")
     clean_build()
-    
-    print("\n" + "="*60)
-    print("Build completed successfully!")
-    print("="*60)
-    print("\nGenerated files:")
-    print("  - dist/Bundle Editor.exe")
-    
+
+    print("\nBuild completed successfully!")
+    print("Generated: dist/Bundle Editor.exe")
     return 0
 
 
 if __name__ == '__main__':
     sys.exit(main())
-
