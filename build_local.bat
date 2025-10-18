@@ -32,12 +32,12 @@ if errorlevel 1 (
 
 echo.
 echo [3/4] 빌드 결과 확인...
-if exist "dist\PbbAuto.exe" (
-    echo ✓ PbbAuto.exe 생성 완료
+if exist "dist\Bundle Editor.exe" (
+    echo ✓ Bundle Editor.exe 생성 완료
     echo.
-    dir dist\PbbAuto.exe | find "PbbAuto.exe"
+    dir "dist\Bundle Editor.exe" | find "Bundle Editor.exe"
 ) else (
-    echo ✗ PbbAuto.exe 생성 실패
+    echo ✗ Bundle Editor.exe 생성 실패
     pause
     exit /b 1
 )
@@ -50,14 +50,14 @@ echo 빌드 성공!
 echo ========================================
 echo.
 echo 생성된 파일 위치:
-echo   - dist\PbbAuto.exe
+echo   - dist\Bundle Editor.exe
 echo.
 echo 테스트 실행하시겠습니까? (Y/N)
 set /p RUN_TEST=
 if /i "%RUN_TEST%"=="Y" (
     echo.
     echo 실행 중...
-    start dist\PbbAuto.exe
+    start "" "dist\Bundle Editor.exe"
 )
 
 pause
