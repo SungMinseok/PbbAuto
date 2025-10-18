@@ -125,6 +125,7 @@ a = Analysis(
         'PIL',
         'requests',
         'packaging',
+        'unittest',
     ],
     hookspath=[],
     hooksconfig={{}},
@@ -132,7 +133,6 @@ a = Analysis(
     excludes=[
         'tkinter',
         'test',
-        'unittest',
         'distutils',
         'pydoc',
         'extension-output-ms-dotnettools.vscode-dotnet-runtime-#1-.NET Install Tool',
