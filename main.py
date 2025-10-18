@@ -52,6 +52,7 @@ class PbbAutoApp(QWidget):
         
         # 자동 업데이트 시스템 초기화
         self.auto_updater = AutoUpdater()
+        self.auto_updater.set_main_app(self)  # main app 참조 설정
         
         self.initUI()
         self.prefix_input.setText('SM5')
@@ -1236,16 +1237,23 @@ class PbbAutoApp(QWidget):
 
     def log(self, message):
         """로그 추가"""
-        self.log_lines.append(message)
-        self.log_box.append(message)
+        from datetime import datetime
+        timestamp = datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
+        msg_with_time = f"{timestamp} {message}"
+        self.log_lines.append(msg_with_time)
+        self.log_box.append(msg_with_time)
+        print(msg_with_time)
         if len(self.log_lines) > 3:
             self.log_lines.pop(0)
 
     def log_error(self, message):
         """에러 로그 추가 (빨간색)"""
-        self.log_lines.append(message)
-        # 빨간색 처리: HTML 태그 이용
-        self.log_box.append(f'<span style="color:red;">{message}</span>')
+        from datetime import datetime
+        timestamp = datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
+        msg_with_time = f"{timestamp} {message}"
+        self.log_lines.append(msg_with_time)
+        self.log_box.append(f'<span style="color:red;">{msg_with_time}</span>')
+        print(msg_with_time)
         if len(self.log_lines) > 3:
             self.log_lines.pop(0)
 

@@ -27,6 +27,25 @@ class UpdateChecker:
         self.version_file = version_file
         self.current_version = self._load_current_version()
         self.latest_info = None
+        self.main_app = None  # main app 참조
+    
+    def set_main_app(self, main_app):
+        """main app 참조 설정"""
+        self.main_app = main_app
+    
+    def _log(self, message):
+        """로그 메시지 출력 (main app이 있으면 사용, 없으면 print)"""
+        if self.main_app and hasattr(self.main_app, 'log'):
+            self.main_app.log(message)
+        else:
+            print(message)
+    
+    def _log_error(self, message):
+        """에러 로그 메시지 출력 (main app이 있으면 사용, 없으면 print)"""
+        if self.main_app and hasattr(self.main_app, 'log_error'):
+            self.main_app.log_error(message)
+        else:
+            print(message)
         
     def _load_current_version(self) -> str:
         """현재 버전 정보 로드"""
@@ -36,7 +55,7 @@ class UpdateChecker:
                     data = json.load(f)
                     return data.get('version', '0.0.0')
         except Exception as e:
-            print(f"버전 파일 로드 실패: {e}")
+            self._log_error(f"버전 파일 로드 실패: {e}")
         return '0.0.0'
     
     def check_for_updates(self, update_url: Optional[str] = None) -> Tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
@@ -56,10 +75,10 @@ class UpdateChecker:
             
             if not update_url:
                 error_msg = "업데이트 URL이 설정되지 않았습니다."
-                print(error_msg)
+                self._log_error(error_msg)
                 return False, None, error_msg
             
-            print(f"업데이트 확인 중... (현재 버전: {self.current_version})")
+            self._log(f"업데이트 확인 중... (현재 버전: {self.current_version})")
             
             # GitHub API 호출
             response = requests.get(update_url, timeout=10)
@@ -80,19 +99,19 @@ class UpdateChecker:
             
             # 버전 비교
             if version.parse(latest_version) > version.parse(self.current_version):
-                print(f"새로운 버전 발견: {latest_version}")
+                self._log(f"새로운 버전 발견: {latest_version}")
                 return True, self.latest_info, None
             else:
-                print("최신 버전을 사용 중입니다.")
+                self._log("최신 버전을 사용 중입니다.")
                 return False, None, None  # 에러 없음, 단지 최신 버전임
                 
         except requests.RequestException as e:
             error_msg = f"업데이트 서버에 연결할 수 없습니다: {str(e)}"
-            print(f"업데이트 확인 실패: {e}")
+            self._log_error(f"업데이트 확인 실패: {e}")
             return False, None, error_msg
         except Exception as e:
             error_msg = f"업데이트 확인 중 오류가 발생했습니다: {str(e)}"
-            print(f"업데이트 확인 중 오류: {e}")
+            self._log_error(f"업데이트 확인 중 오류: {e}")
             return False, None, error_msg
     
     def _get_update_url(self) -> Optional[str]:
@@ -103,7 +122,7 @@ class UpdateChecker:
                     data = json.load(f)
                     return data.get('update_url')
         except Exception as e:
-            print(f"update_url 로드 실패: {e}")
+            self._log_error(f"update_url 로드 실패: {e}")
         return None
     
     def get_download_url(self, asset_name: Optional[str] = None) -> Optional[str]:
@@ -146,6 +165,25 @@ class UpdateDownloader:
         self.download_path = None
         self.progress_callback = None
         self.cancel_flag = False
+        self.main_app = None  # main app 참조
+    
+    def set_main_app(self, main_app):
+        """main app 참조 설정"""
+        self.main_app = main_app
+    
+    def _log(self, message):
+        """로그 메시지 출력 (main app이 있으면 사용, 없으면 print)"""
+        if self.main_app and hasattr(self.main_app, 'log'):
+            self.main_app.log(message)
+        else:
+            print(message)
+    
+    def _log_error(self, message):
+        """에러 로그 메시지 출력 (main app이 있으면 사용, 없으면 print)"""
+        if self.main_app and hasattr(self.main_app, 'log_error'):
+            self.main_app.log_error(message)
+        else:
+            print(message)
         
     def download(self, url: str, progress_callback=None) -> Optional[str]:
         """
@@ -162,7 +200,7 @@ class UpdateDownloader:
         self.cancel_flag = False
         
         try:
-            print(f"다운로드 시작: {url}")
+            self._log(f"다운로드 시작: {url}")
             
             # 임시 파일 생성
             temp_dir = tempfile.gettempdir()
@@ -179,7 +217,7 @@ class UpdateDownloader:
             with open(self.download_path, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     if self.cancel_flag:
-                        print("다운로드 취소됨")
+                        self._log("다운로드 취소됨")
                         self._cleanup()
                         return None
                     
@@ -190,15 +228,15 @@ class UpdateDownloader:
                         if self.progress_callback and total_size > 0:
                             self.progress_callback(downloaded_size, total_size)
             
-            print(f"다운로드 완료: {self.download_path}")
+            self._log(f"다운로드 완료: {self.download_path}")
             return self.download_path
             
         except requests.RequestException as e:
-            print(f"다운로드 실패: {e}")
+            self._log_error(f"다운로드 실패: {e}")
             self._cleanup()
             return None
         except Exception as e:
-            print(f"다운로드 중 오류: {e}")
+            self._log_error(f"다운로드 중 오류: {e}")
             self._cleanup()
             return None
     
@@ -212,14 +250,14 @@ class UpdateDownloader:
             try:
                 os.remove(self.download_path)
             except Exception as e:
-                print(f"임시 파일 삭제 실패: {e}")
+                self._log_error(f"임시 파일 삭제 실패: {e}")
 
 
 class UpdateInstaller:
     """업데이트 설치 클래스"""
     
     @staticmethod
-    def install_update(update_file: str, restart: bool = True) -> bool:
+    def install_update(update_file: str, restart: bool = True, logger=None) -> bool:
         """
         업데이트 설치
         
@@ -230,9 +268,21 @@ class UpdateInstaller:
         Returns:
             설치 성공 여부
         """
+        def _log(message):
+            if logger and hasattr(logger, 'log'):
+                logger.log(message)
+            else:
+                print(message)
+        
+        def _log_error(message):
+            if logger and hasattr(logger, 'log_error'):
+                logger.log_error(message)
+            else:
+                print(message)
+        
         try:
             if not os.path.exists(update_file):
-                print(f"업데이트 파일을 찾을 수 없습니다: {update_file}")
+                _log_error(f"업데이트 파일을 찾을 수 없습니다: {update_file}")
                 return False
             
             # 현재 실행 파일 경로
@@ -240,19 +290,19 @@ class UpdateInstaller:
             is_frozen = getattr(sys, 'frozen', False)
             
             if not is_frozen:
-                print("개발 모드에서는 업데이트를 설치할 수 없습니다.")
-                print(f"업데이트 파일 위치: {update_file}")
+                _log("개발 모드에서는 업데이트를 설치할 수 없습니다.")
+                _log(f"업데이트 파일 위치: {update_file}")
                 return False
             
             # 업데이트 스크립트 생성
             updater_script = UpdateInstaller._create_updater_script(
-                current_exe, update_file, restart
+                current_exe, update_file, restart, logger
             )
             
             if not updater_script:
                 return False
             
-            print("업데이트 설치 시작...")
+            _log("업데이트 설치 시작...")
             
             # 별도 프로세스로 업데이트 스크립트 실행
             if sys.platform == 'win32':
@@ -267,17 +317,17 @@ class UpdateInstaller:
             
             # 현재 앱 종료
             if restart:
-                print("앱을 종료하고 업데이트를 설치합니다...")
+                _log("앱을 종료하고 업데이트를 설치합니다...")
                 sys.exit(0)
             
             return True
             
         except Exception as e:
-            print(f"업데이트 설치 실패: {e}")
+            _log_error(f"업데이트 설치 실패: {e}")
             return False
     
     @staticmethod
-    def _create_updater_script(current_exe: str, update_file: str, restart: bool) -> Optional[str]:
+    def _create_updater_script(current_exe: str, update_file: str, restart: bool, logger=None) -> Optional[str]:
         """
         업데이트 스크립트 생성
         
@@ -358,7 +408,10 @@ echo "업데이트 완료!"
             return script_path
             
         except Exception as e:
-            print(f"업데이트 스크립트 생성 실패: {e}")
+            if logger and hasattr(logger, 'log_error'):
+                logger.log_error(f"업데이트 스크립트 생성 실패: {e}")
+            else:
+                print(f"업데이트 스크립트 생성 실패: {e}")
             return None
 
 
@@ -370,6 +423,28 @@ class AutoUpdater:
         self.downloader = UpdateDownloader()
         self.update_available = False
         self.latest_info = None
+        self.main_app = None  # main app 참조
+    
+    def set_main_app(self, main_app):
+        """main app 참조 설정"""
+        self.main_app = main_app
+        # 하위 컴포넌트들에도 참조 전달
+        self.checker.set_main_app(main_app)
+        self.downloader.set_main_app(main_app)
+    
+    def _log(self, message):
+        """로그 메시지 출력 (main app이 있으면 사용, 없으면 print)"""
+        if self.main_app and hasattr(self.main_app, 'log'):
+            self.main_app.log(message)
+        else:
+            print(message)
+    
+    def _log_error(self, message):
+        """에러 로그 메시지 출력 (main app이 있으면 사용, 없으면 print)"""
+        if self.main_app and hasattr(self.main_app, 'log_error'):
+            self.main_app.log_error(message)
+        else:
+            print(message)
         
     def check_updates_async(self, callback=None):
         """
@@ -403,7 +478,7 @@ class AutoUpdater:
                 download_url = self.checker.get_download_url()
                 
                 if not download_url:
-                    print("다운로드 URL을 찾을 수 없습니다.")
+                    self._log_error("다운로드 URL을 찾을 수 없습니다.")
                     if completion_callback:
                         completion_callback(False)
                     return
@@ -417,13 +492,13 @@ class AutoUpdater:
                     return
                 
                 # 설치
-                success = UpdateInstaller.install_update(update_file, restart=True)
+                success = UpdateInstaller.install_update(update_file, restart=True, logger=self.main_app)
                 
                 if completion_callback:
                     completion_callback(success)
                     
             except Exception as e:
-                print(f"다운로드/설치 중 오류: {e}")
+                self._log_error(f"다운로드/설치 중 오류: {e}")
                 if completion_callback:
                     completion_callback(False)
         
@@ -443,10 +518,10 @@ if __name__ == '__main__':
     has_update, info, error_msg = updater.checker.check_for_updates()
     
     if error_msg:
-        print(f"\n에러: {error_msg}")
+        updater._log_error(f"에러: {error_msg}")
     elif has_update:
-        print(f"\n새 버전: {info['version']}")
-        print(f"변경사항:\n{info['body']}")
+        updater._log(f"새 버전: {info['version']}")
+        updater._log(f"변경사항:\n{info['body']}")
     else:
-        print("최신 버전입니다.")
+        updater._log("최신 버전입니다.")
 
