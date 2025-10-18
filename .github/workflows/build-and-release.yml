@@ -3,11 +3,11 @@ name: Build and Release
 on:
   push:
     tags:
-      - 'v*' # v로 시작하는 모든 태그 트리거 (예: v2025.10.18.1643)
+      - 'v*' # Trigger on version tags (e.g. v2025.10.18.1643)
   workflow_dispatch:
 
 permissions:
-  contents: write  # ✅ Release 생성 및 파일 업로드 권한
+  contents: write  # Release & upload permission
 
 jobs:
   build:
@@ -48,23 +48,23 @@ jobs:
         python build.py
         echo "Build completed."
 
-    - name: Verify build output
-      run: |
-        if (Test-Path "dist") {
-          echo "dist folder found:"
-          dir dist
-        } else {
-          echo "❌ dist folder missing!"
-          exit 1
-        }
+    - name: Copy version.json to dist
+      run: copy version.json dist\
 
-    - name: Upload build artifacts
+    - name: Zip release files (no version in filename)
+      run: |
+        powershell Compress-Archive -Path "dist/Bundle Editor.exe","dist\version.json" -DestinationPath "dist/BundleEditor.zip"
+
+    - name: List dist folder contents
+      run: dir dist
+
+    - name: Upload build artifacts (optional)
       uses: actions/upload-artifact@v4
       with:
         name: build-dist
         path: dist/
 
-    - name: Create GitHub Release
+    - name: Create GitHub Release (zip only)
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ github.ref_name }}
@@ -72,7 +72,6 @@ jobs:
         body: |
           🎉 Automated release for version ${{ steps.get_version.outputs.version }}
           Generated on ${{ github.run_date }}
-        files: |
-          dist/BundleEditor_*.zip
+        files: dist/BundleEditor.zip
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
