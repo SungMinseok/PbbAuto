@@ -98,7 +98,22 @@ VSVersionInfo(
 def create_spec_file():
     """Create PyInstaller spec file"""
     
-    spec_content = """# -*- mode: python ; coding: utf-8 -*-
+    # Check which folders exist and build datas list
+    datas_list = [
+        "('version.json', '.')",
+    ]
+    
+    # Add folders only if they exist
+    if os.path.exists('bundles'):
+        datas_list.append("('bundles', 'bundles')")
+    if os.path.exists('preset'):
+        datas_list.append("('preset', 'preset')")
+    if os.path.exists('design'):
+        datas_list.append("('design', 'design')")
+    
+    datas_str = ",\n        ".join(datas_list)
+    
+    spec_content = f"""# -*- mode: python ; coding: utf-8 -*-
 
 block_cipher = None
 
@@ -107,10 +122,7 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[
-        ('version.json', '.'),
-        ('bundles', 'bundles'),
-        ('preset', 'preset'),
-        ('design', 'design'),
+        {datas_str},
     ],
     hiddenimports=[
         'PyQt5.QtCore',
@@ -166,6 +178,20 @@ exe = EXE(
         f.write(spec_content)
     
     print("Spec file created: PbbAuto.spec")
+    print("Included data folders:")
+    if os.path.exists('bundles'):
+        print("  ✓ bundles")
+    else:
+        print("  ✗ bundles (not found, skipped)")
+    if os.path.exists('preset'):
+        print("  ✓ preset")
+    else:
+        print("  ✗ preset (not found, skipped)")
+    if os.path.exists('design'):
+        print("  ✓ design")
+    else:
+        print("  ✗ design (not found, skipped)")
+    
     return 'PbbAuto.spec'
 
 
