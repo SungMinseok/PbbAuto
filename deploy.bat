@@ -9,46 +9,51 @@ echo PbbAuto 빠른 배포 스크립트
 echo ========================================
 echo.
 
-REM 현재 시간 기반 버전 자동 생성 (1.0.yymmdd.hhmm 형식)
-for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value') do set datetime=%%I
-set YEAR=%datetime:~2,2%
-set MONTH=%datetime:~4,2%
-set DAY=%datetime:~6,2%
-set HOUR=%datetime:~8,2%
-set MINUTE=%datetime:~10,2%
-set VERSION=1.0.%YEAR%%MONTH%%DAY%.%HOUR%%MINUTE%
+echo [1/7] version.json 자동 업데이트...
+echo.
+set /p CHANGELOG_MSG="변경사항 입력 (Enter=자동 배포): "
+if "%CHANGELOG_MSG%"=="" (
+    set CHANGELOG_MSG=자동 배포
+)
 
-echo 자동 생성된 버전: %VERSION%
+REM Python으로 version.json 업데이트
+python update_version.py "%CHANGELOG_MSG%"
+
+REM 업데이트된 버전 읽기
+for /f "tokens=2 delims=:" %%V in ('python -c "import json; f=open('version.json','r',encoding='utf-8'); d=json.load(f); print('version:'+d['version']); f.close()"') do set VERSION=%%V
+
+echo.
+echo 생성된 버전: %VERSION%
 echo.
 
 echo.
-echo [1/6] 로컬 변경사항 확인...
+echo [2/7] 로컬 변경사항 확인...
 git status
 
 echo.
-echo [2/6] 변경사항 커밋...
-set /p COMMIT_MSG="커밋 메시지 입력: "
+echo [3/7] 변경사항 커밋...
+set /p COMMIT_MSG="커밋 메시지 입력 (Enter=기본): "
 if "%COMMIT_MSG%"=="" (
-    set COMMIT_MSG=v%VERSION% 배포
+    set COMMIT_MSG=v%VERSION% 배포 - %CHANGELOG_MSG%
 )
 
 git add .
 git commit -m "%COMMIT_MSG%"
 
 echo.
-echo [3/6] 메인 브랜치에 푸시...
+echo [4/7] 메인 브랜치에 푸시...
 git push origin main
 
 echo.
-echo [4/6] 태그 생성 (v%VERSION%)...
+echo [5/7] 태그 생성 (v%VERSION%)...
 git tag -a v%VERSION% -m "Release v%VERSION%"
 
 echo.
-echo [5/6] 태그 푸시 (자동 빌드 트리거)...
+echo [6/7] 태그 푸시 (자동 빌드 트리거)...
 git push origin v%VERSION%
 
 echo.
-echo [6/6] 완료!
+echo [7/7] 완료!
 echo.
 echo ========================================
 echo GitHub Actions에서 자동 빌드 중...

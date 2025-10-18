@@ -1,17 +1,31 @@
 {
-  "version": "1.0.251018.1530",
+  "version": "2025.10.18.1622",
   "build_date": "2025-10-18",
   "update_url": "https://api.github.com/repos/SungMinseok/PbbAuto/releases/latest",
   "changelog": [
     {
-      "version": "1.0.251018.1530",
+      "version": "2025.10.18.1622",
+      "date": "2025-10-18",
+      "changes": [
+        "자동 배포"
+      ]
+    },
+    {
+      "version": "2025.10.18.1618",
+      "date": "2025-10-18",
+      "changes": [
+        "버전 형식 변경 (CalVer - YYYY.MM.DD.HHMM)"
+      ]
+    },
+    {
+      "version": "2025.10.18.1530",
       "date": "2025-10-18",
       "changes": [
         "명령어 루틴 종료 후 다음 명령어 실행 안되는 문제 해결",
         "윈도우 선택 로직 개선 - 자동 새로고침 및 상세 디버깅",
         "Qt 스레드 안전성 준수 - popup 닫기 시 앱 멈춤 현상 해결",
         "popup 자동 닫기 기능 개선",
-        "버전 형식 변경 (1.0.yymmdd.hhmm)"
+        "버전 형식 변경 (YYYY.MM.DD.HHMM - CalVer)"
       ]
     },
     {
@@ -26,4 +40,3 @@
     }
   ]
 }
-

@@ -28,28 +28,34 @@ def create_version_file():
     PyInstaller에서 EXE 파일에 버전 정보를 임베딩하는 데 사용
     """
     version_info = load_version_info()
-    version = version_info.get('version', '1.0.0.0')
+    version = version_info.get('version', '2025.01.01.0000')
     
-    # 버전을 4자리 형식으로 변환
-    # 예: 1.0.251018.1530 -> 이미 4자리
-    # 예: 1.0.0 -> 1.0.0.0
+    # CalVer 형식: YYYY.MM.DD.HHMM
+    # Windows 버전 파일은 각 파트가 0-65535여야 함
+    # YYYY는 항상 65535를 초과하므로 처리 필요
+    
     version_parts = version.split('.')
     while len(version_parts) < 4:
         version_parts.append('0')
     
-    # 4자리로 제한하고 각 파트가 65535를 초과하지 않도록 처리
+    # Windows 버전 파일용: 각 파트를 0-65535 범위로 제한
     file_version_parts = []
-    for part in version_parts[:4]:
+    for i, part in enumerate(version_parts[:4]):
         try:
             num = int(part)
-            # Windows 버전은 각 파트가 0-65535 범위여야 함
+            # 첫 번째 파트(YYYY)가 65535를 초과하면 제한
             if num > 65535:
-                num = 65535
+                # YYYY -> YY로 변환 (2025 -> 25)
+                if i == 0 and num > 2000:
+                    num = num % 100  # 2025 -> 25
+                else:
+                    num = 65535
             file_version_parts.append(str(num))
         except ValueError:
             file_version_parts.append('0')
     
     file_version = '.'.join(file_version_parts)
+    display_version = version  # 사용자에게 보여줄 원본 버전
     
     version_file_content = f"""
 VSVersionInfo(
@@ -70,12 +76,12 @@ VSVersionInfo(
         u'040904B0',
         [StringStruct(u'CompanyName', u'PbbAuto Team'),
         StringStruct(u'FileDescription', u'PbbAuto - 자동화 테스트 도구'),
-        StringStruct(u'FileVersion', u'{file_version}'),
+        StringStruct(u'FileVersion', u'{display_version}'),
         StringStruct(u'InternalName', u'PbbAuto'),
         StringStruct(u'LegalCopyright', u'Copyright 2025'),
         StringStruct(u'OriginalFilename', u'PbbAuto.exe'),
         StringStruct(u'ProductName', u'PbbAuto'),
-        StringStruct(u'ProductVersion', u'{file_version}')])
+        StringStruct(u'ProductVersion', u'{display_version}')])
       ]),
     VarFileInfo([VarStruct(u'Translation', [1033, 1200])])
   ]
@@ -85,7 +91,7 @@ VSVersionInfo(
     with open('version_info.txt', 'w', encoding='utf-8') as f:
         f.write(version_file_content)
     
-    print(f"버전 파일 생성 완료: {file_version}")
+    print(f"버전 파일 생성 완료: {display_version} (Windows: {file_version})")
     return 'version_info.txt'
 
 
