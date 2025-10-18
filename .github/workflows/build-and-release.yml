@@ -3,31 +3,76 @@ name: Build and Release
 on:
   push:
     tags:
-      - 'v*'      # 태그가 push될 때만 동작 (버전 릴리스)
+      - 'v*' # v로 시작하는 모든 태그 트리거 (예: v2025.10.18.1643)
+  workflow_dispatch:
+
+permissions:
+  contents: write  # ✅ Release 생성 및 파일 업로드 권한
 
 jobs:
   build:
     runs-on: windows-latest
+    timeout-minutes: 30
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip'
 
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
 
-      - name: Build and package
-        run: |
-          call deploy.bat
+    - name: Extract version from tag
+      id: get_version
+      shell: bash
+      run: |
+        if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+          VERSION=${GITHUB_REF#refs/tags/v}
+        else
+          VERSION="0.0.0-dev"
+        fi
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Detected version: $VERSION"
 
-      # 👇 **zip 자동 릴리스 첨부 스텝**
-      - name: Upload Release Asset (zip)
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/BundleEditor_*.zip
+    - name: Build EXE
+      run: |
+        echo "Starting build..."
+        python build.py
+        echo "Build completed."
+
+    - name: Verify build output
+      run: |
+        if (Test-Path "dist") {
+          echo "dist folder found:"
+          dir dist
+        } else {
+          echo "❌ dist folder missing!"
+          exit 1
+        }
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-dist
+        path: dist/
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ github.ref_name }}
+        name: Release ${{ steps.get_version.outputs.version }}
+        body: |
+          🎉 Automated release for version ${{ steps.get_version.outputs.version }}
+          Generated on ${{ github.run_date }}
+        files: |
+          dist/BundleEditor_*.zip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
