@@ -1,8 +1,15 @@
 {
-  "version": "2025.10.20.0045",
+  "version": "2025.10.20.0145",
   "build_date": "2025-10-20",
   "update_url": "https://api.github.com/repos/SungMinseok/PbbAuto/releases/latest",
   "changelog": [
+    {
+      "version": "2025.10.20.0145",
+      "date": "2025-10-20",
+      "changes": [
+        "Auto Deploy"
+      ]
+    },
     {
       "version": "2025.10.20.0045",
       "date": "2025-10-20",
