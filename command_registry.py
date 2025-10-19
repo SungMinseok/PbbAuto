@@ -45,6 +45,18 @@ class CommandBase(ABC):
         """메인 앱 참조 설정"""
         self.main_app = main_app
     
+    def _update_current_window_info(self, window_info):
+        """현재 실제 선택된 윈도우로 window_info 업데이트"""
+        if not window_info:
+            return
+            
+        if self.main_app and hasattr(self.main_app, 'window_dropdown'):
+            current_window = self.main_app.window_dropdown.currentText()
+            if current_window and current_window != window_info.get('target_app'):
+                # 실제 윈도우와 저장된 정보가 다르면 업데이트
+                window_info['target_app'] = current_window
+                print(f"🔄 대상 윈도우 정보 실시간 업데이트: {current_window}")
+    
     def create_window_info_layout(self):
         """현재 선택된 윈도우 정보를 보여주는 레이아웃 생성"""
         info_layout = QHBoxLayout()
@@ -2799,6 +2811,9 @@ class ExportResultCommand(CommandBase):
         window_info = processor_state.get('window_info', {})
         executed_apps = processor_state.get('executed_apps', [])
         
+        # 현재 실제 선택된 윈도우로 업데이트
+        self._update_current_window_info(window_info)
+        
         if window_info or executed_apps:
             print("\n📱 실행 환경 정보:")
             print("-" * 30)
@@ -3116,6 +3131,8 @@ class ExportResultCommand(CommandBase):
         if processor_state:
             window_info = processor_state.get('window_info', {})
             executed_apps = processor_state.get('executed_apps', [])
+            # 현재 실제 선택된 윈도우로 업데이트
+            self._update_current_window_info(window_info)
             
             if window_info or executed_apps:
                 ws_summary.cell(row=current_row, column=1, value="실행 환경 정보:")
@@ -3197,6 +3214,9 @@ class ExportResultCommand(CommandBase):
             # 윈도우 실행 정보 추가 (간소화)
             window_info = processor_state.get('window_info', {}) if processor_state else {}
             executed_apps = processor_state.get('executed_apps', []) if processor_state else []
+            # 현재 실제 선택된 윈도우로 업데이트
+            if processor_state:
+                self._update_current_window_info(window_info)
             
             if window_info or executed_apps:
                 f.write("\n📱 실행 환경 정보:\n")
@@ -3275,6 +3295,9 @@ class ExportResultCommand(CommandBase):
             # 윈도우 실행 정보 추가 (간소화)
             window_info = processor_state.get('window_info', {}) if processor_state else {}
             executed_apps = processor_state.get('executed_apps', []) if processor_state else []
+            # 현재 실제 선택된 윈도우로 업데이트
+            if processor_state:
+                self._update_current_window_info(window_info)
 
             if window_info or executed_apps:
                 message_lines.append("")
@@ -3499,35 +3522,58 @@ class RunAppCommand(CommandBase):
     
     def _get_window_titles(self):
         """현재 열려있는 윈도우의 제목들을 반환 (탐색기 제외)"""
-        import win32gui
-        
         window_titles = []
         
-        def enum_windows_proc(hwnd, param):
-            if win32gui.IsWindowVisible(hwnd) and win32gui.GetWindowText(hwnd):
-                title = win32gui.GetWindowText(hwnd)
-                class_name = win32gui.GetClassName(hwnd)
-                
-                # 윈도우 탐색기와 기타 시스템 윈도우 제외
-                excluded_classes = ['ExploreWClass', 'CabinetWClass', 'Shell_TrayWnd', 'DV2ControlHost']
-                excluded_titles = ['바탕 화면', 'Desktop', '작업 표시줄', 'Taskbar', 'Program Manager']
-                
-                if (class_name not in excluded_classes and 
-                    title not in excluded_titles and 
-                    not title.startswith('Windows ') and
-                    len(title.strip()) > 0):
-                    window_titles.append(title)
-            
-            return True
-        
         try:
+            import win32gui
+            
+            def enum_windows_proc(hwnd, param):
+                if win32gui.IsWindowVisible(hwnd) and win32gui.GetWindowText(hwnd):
+                    title = win32gui.GetWindowText(hwnd)
+                    class_name = win32gui.GetClassName(hwnd)
+                    
+                    # 윈도우 탐색기와 기타 시스템 윈도우 제외
+                    excluded_classes = ['ExploreWClass', 'CabinetWClass', 'Shell_TrayWnd', 'DV2ControlHost']
+                    excluded_titles = ['바탕 화면', 'Desktop', '작업 표시줄', 'Taskbar', 'Program Manager']
+                    
+                    if (class_name not in excluded_classes and 
+                        title not in excluded_titles and 
+                        not title.startswith('Windows ') and
+                        len(title.strip()) > 0):
+                        window_titles.append(title)
+                
+                return True
+            
             win32gui.EnumWindows(enum_windows_proc, None)
+            
         except ImportError:
-            # win32gui가 없는 경우 빈 리스트 반환
-            print("⚠️ win32gui 모듈이 필요합니다. pip install pywin32")
+            # win32gui가 없는 경우 pygetwindow로 fallback
+            print("⚠️ win32gui 모듈이 없습니다. pygetwindow로 대체 사용합니다.")
+            try:
+                import pygetwindow as gw
+                all_windows = gw.getAllWindows()
+                for window in all_windows:
+                    try:
+                        title = window.title
+                        if title and len(title.strip()) > 0:
+                            # 시스템 윈도우 제외
+                            excluded_titles = ['바탕 화면', 'Desktop', '작업 표시줄', 'Taskbar', 'Program Manager']
+                            if (title not in excluded_titles and 
+                                not title.startswith('Windows ') and
+                                not title.startswith('Microsoft Text Input Application')):
+                                window_titles.append(title)
+                    except Exception:
+                        continue
+            except Exception as e:
+                print(f"pygetwindow로 윈도우 목록 가져오기 실패: {e}")
+                # 완전 실패 시 기본 윈도우 목록 제공
+                window_titles = ["메모장", "Chrome", "Firefox", "Edge", "Visual Studio Code"]
+                
         except Exception as e:
             print(f"윈도우 목록 가져오기 실패: {e}")
-        
+            # 오류 시 기본 윈도우 목록 제공
+            window_titles = ["메모장", "Chrome", "Firefox", "Edge", "Visual Studio Code"]
+
         # 중복 제거 및 정렬
         return sorted(list(set(window_titles)))
     
@@ -4004,7 +4050,7 @@ class RunAppCommand(CommandBase):
             existing_window = self._check_existing_window(window_pattern)
             if existing_window:
                 print(f"✓ 윈도우를 발견했습니다: {existing_window}")
-                self._auto_select_window(existing_window)
+                self._auto_select_window(existing_window, processor_state)
                 # 윈도우만 인식한 경우에도 정보 저장
                 if processor_state is not None:
                     if 'executed_apps' not in processor_state:
@@ -4027,7 +4073,7 @@ class RunAppCommand(CommandBase):
             detected_window = self._wait_for_window(window_pattern, timeout, False)
             if detected_window:
                 print(f"✓ 윈도우 감지됨: {detected_window}")
-                self._auto_select_window(detected_window)
+                self._auto_select_window(detected_window, processor_state)
             else:
                 print(f"❌ '{window_pattern}' 패턴의 윈도우를 찾을 수 없습니다. (타임아웃: {timeout}초)")
             return
@@ -4037,7 +4083,8 @@ class RunAppCommand(CommandBase):
             existing_window = self._check_existing_window(window_pattern)
             if existing_window:
                 print(f"✓ 이미 열려있는 윈도우를 발견했습니다: {existing_window}")
-                self._auto_select_window(existing_window)
+                print("🔄 발견된 윈도우를 자동 선택하고 활성화합니다...")
+                self._auto_select_window(existing_window, processor_state)
                 return  # 이미 열려있으니까 실행 종료
         
         # 2. 모드별 파일 경로 결정
@@ -4095,7 +4142,7 @@ class RunAppCommand(CommandBase):
             detected_window = self._wait_for_window(window_pattern, timeout, wait_for_load)
             if detected_window:
                 print(f"✓ 윈도우 감지됨: {detected_window}")
-                self._auto_select_window(detected_window)
+                self._auto_select_window(detected_window, processor_state)
             else:
                 print(f"⚠️ 윈도우를 감지하지 못했습니다 (타임아웃: {timeout}초)")
     
@@ -4310,7 +4357,7 @@ class RunAppCommand(CommandBase):
         
         return None
     
-    def _auto_select_window(self, window_title):
+    def _auto_select_window(self, window_title, processor_state=None):
         """윈도우 자동 선택 및 메인 앱 새로고침"""
         try:
             import pygetwindow as gw
@@ -4339,14 +4386,12 @@ class RunAppCommand(CommandBase):
             # 여러 번 시도하여 윈도우 목록 갱신 및 선택
             max_attempts = 5
             for attempt in range(max_attempts):
-                print(f"윈도우 선택 시도 {attempt + 1}/{max_attempts}...")
+                print(f"🔍 드롭다운에서 '{window_title}' 선택 시도... ({attempt + 1}/{max_attempts})")
                 
                 # prefix를 임시로 비워서 모든 윈도우 표시
-                print("prefix를 임시로 제거하여 모든 윈도우 표시...")
                 main_widget.prefix_input.setText("")
                 
                 # 윈도우 목록 새로고침
-                print("윈도우 목록을 새로고침합니다...")
                 main_widget.refresh_window_list()
                 
                 # 잠깐 대기 (UI 업데이트 시간)
@@ -4380,7 +4425,12 @@ class RunAppCommand(CommandBase):
                     # 윈도우 선택
                     main_widget.window_dropdown.setCurrentIndex(found_index)
                     selected_window = main_widget.window_dropdown.currentText()
-                    print(f"✓ 윈도우가 자동 선택됨: {selected_window}")
+                    print(f"✅ 드롭다운에서 윈도우 선택 완료: {selected_window}")
+                    
+                    # processor_state의 target_app도 업데이트
+                    if processor_state and 'window_info' in processor_state:
+                        processor_state['window_info']['target_app'] = selected_window
+                        print(f"📱 대상 윈도우 정보 업데이트: {selected_window}")
                     
                     # 실제 윈도우 활성화 (맨 앞으로 가져오기)
                     try:

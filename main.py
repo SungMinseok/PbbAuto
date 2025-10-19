@@ -59,7 +59,7 @@ class PbbAutoApp(QWidget):
         self.auto_updater.set_main_app(self)  # main app 참조 설정
         
         self.initUI()
-        self.prefix_input.setText('SM5')
+        #self.prefix_input.setText('SM5')
         self.refresh_window_list()
         
         # 시그널 연결
@@ -156,7 +156,7 @@ class PbbAutoApp(QWidget):
     def _init_window_section(self, main_layout):
         """윈도우 선택 섹션 초기화"""
         self.prefix_input = QLineEdit(self)
-        self.prefix_input.setPlaceholderText("Enter window title prefix...")
+        self.prefix_input.setPlaceholderText("Window Title Prefix")
         self.refresh_button = QPushButton('Refresh', self)
         self.refresh_button.clicked.connect(self.refresh_window_list)
         self.window_dropdown = QComboBox(self)
@@ -330,11 +330,15 @@ class PbbAutoApp(QWidget):
 
     def refresh_window_list(self):
         """윈도우 목록 새로고침"""
-        prefix = self.prefix_input.text()
+        prefix = self.prefix_input.text().strip()
         all_windows = gw.getAllTitles()
-        filtered_windows = [w for w in all_windows if prefix in w]
+
+        # 빈 문자열/공백만 있는 항목 제거 + prefix 필터링
+        filtered_windows = [w for w in all_windows if w.strip() and (prefix in w)]
+
         self.window_dropdown.clear()
         self.window_dropdown.addItems(filtered_windows)
+
         if filtered_windows:
             self.update_coordinates()
 
@@ -361,8 +365,8 @@ class PbbAutoApp(QWidget):
         self.command_processor.stop_flag = False
         
         # 실행 전 윈도우 목록 자동 새로고침
-        print("실행 전 윈도우 목록 자동 새로고침...")
-        self.refresh_window_list()
+        #print("실행 전 윈도우 목록 자동 새로고침...")
+        #self.refresh_window_list()
         
         # Expand bundles to get flat command list for display (only from checked items)
         display_commands = []

@@ -21,3 +21,5 @@ dist/
 version_info.txt
 *.pyc
 *.pyo
+main.py
+git_log_with_diff_bundleEditor.txt
