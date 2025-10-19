@@ -1592,14 +1592,15 @@ class PbbAutoApp(QWidget):
         """시작 시 자동 업데이트 확인 및 진행"""
         def callback(has_update, info, error_msg):
             if error_msg:
-                self.log_error(f"업데이트 확인 실패: {error_msg}")
+                self.log_error(f"시작 시 업데이트 확인 실패: {error_msg}")
             elif has_update:
-                self.log(f"새 버전 발견: {info['version']}")
-                # 새 버전 발견 시 자동으로 업데이트 다이얼로그 표시
-                self._show_auto_update_dialog(info)
+                self.log(f"🎉 시작 시 새 버전 발견: {info['version']}")
+                # 수동 업데이트 확인과 동일한 팝업 표시
+                self.update_check_result.emit(has_update, info, error_msg or "")
             else:
                 self.log("시작 시 업데이트 확인: 최신 버전 사용 중")
         
+        self.log("시작 시 업데이트 확인 중...")
         self.auto_updater.check_updates_async(callback)
     
     def _show_auto_update_dialog(self, info):
@@ -1757,6 +1758,7 @@ class PbbAutoApp(QWidget):
             def completion_callback(success):
                 """완료 콜백"""
                 try:
+                    self.log(f"업데이트 완료 콜백: success={success}")
                     if success:
                         if progress_dialog:
                             try:
@@ -1771,6 +1773,8 @@ class PbbAutoApp(QWidget):
                         )
                         # install_update 메서드가 자동으로 재시작함
                     else:
+                        # 업데이트 실패
+                        self.log_error("업데이트가 실패했습니다.")
                         if progress_dialog:
                             try:
                                 progress_dialog.close()
@@ -1778,10 +1782,20 @@ class PbbAutoApp(QWidget):
                                 self.log_error(f"다운로드 다이얼로그 닫기 중 오류: {e}")
                         
                         if not progress_dialog or not progress_dialog.cancelled:
+                            # 더 상세한 에러 메시지 표시
+                            error_msg = (
+                                "업데이트 설치에 실패했습니다.\n\n"
+                                "가능한 원인:\n"
+                                "• 파일 권한 문제 (관리자 권한으로 실행 시도)\n"
+                                "• 바이러스 백신 소프트웨어 간섭\n"
+                                "• 디스크 용량 부족\n"
+                                "• 네트워크 연결 문제\n\n"
+                                "자세한 내용은 logs 폴더의 로그 파일을 확인하세요."
+                            )
                             QMessageBox.warning(
                                 self,
                                 "업데이트 실패",
-                                "업데이트 다운로드에 실패했습니다.\n나중에 다시 시도해주세요."
+                                error_msg
                             )
                 except Exception as e:
                     self.log_error(f"업데이트 완료 콜백 실행 중 오류: {e}")
@@ -2305,7 +2319,7 @@ def handle_exception(exc_type, exc_value, exc_traceback):
     os.makedirs("logs", exist_ok=True)
     
     # 에러 로그 파일에 기록
-    error_filename = f"logs/error_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+    error_filename = f"logs/error_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
     with open(error_filename, "w", encoding="utf-8") as f:
         f.write(f"Unhandled exception occurred at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"Exception type: {exc_type.__name__}\n")
@@ -2365,7 +2379,7 @@ if __name__ == '__main__':
     except Exception as e:
         # main 실행 중 예외 발생 시
         os.makedirs("logs", exist_ok=True)
-        error_filename = f"logs/error_main_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        error_filename = f"logs/error_main_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
         with open(error_filename, "w", encoding="utf-8") as f:
             f.write(f"Main execution error occurred at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write("Exception details:\n")

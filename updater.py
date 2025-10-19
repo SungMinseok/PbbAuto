@@ -288,49 +288,79 @@ class UpdateInstaller:
                 print(message)
         
         try:
+            _log(f"업데이트 파일 확인: {update_file}")
+            
+            # 업데이트 파일 존재 여부 확인
             if not os.path.exists(update_file):
                 _log_error(f"업데이트 파일을 찾을 수 없습니다: {update_file}")
+                return False
+            
+            # 파일 크기 확인
+            file_size = os.path.getsize(update_file)
+            _log(f"업데이트 파일 크기: {file_size} bytes")
+            
+            if file_size < 1000000:  # 1MB 미만이면 이상함
+                _log_error(f"업데이트 파일이 너무 작습니다: {file_size} bytes")
                 return False
             
             # 현재 실행 파일 경로
             current_exe = sys.executable
             is_frozen = getattr(sys, 'frozen', False)
             
+            _log(f"현재 실행 파일: {current_exe}")
+            _log(f"Frozen 상태: {is_frozen}")
+            
             if not is_frozen:
                 _log("개발 모드에서는 업데이트를 설치할 수 없습니다.")
                 _log(f"업데이트 파일 위치: {update_file}")
                 return False
             
+            # 현재 실행 파일 접근 권한 체크
+            if not os.access(os.path.dirname(current_exe), os.W_OK):
+                _log_error(f"실행 파일 디렉토리에 쓰기 권한이 없습니다: {os.path.dirname(current_exe)}")
+                return False
+            
             # 업데이트 스크립트 생성
+            _log("업데이트 스크립트 생성 중...")
             updater_script = UpdateInstaller._create_updater_script(
                 current_exe, update_file, restart, logger
             )
             
             if not updater_script:
+                _log_error("업데이트 스크립트 생성 실패")
                 return False
             
-            _log("업데이트 설치 시작...")
+            _log(f"업데이트 스크립트 생성됨: {updater_script}")
             
             # 별도 프로세스로 업데이트 스크립트 실행
             if sys.platform == 'win32':
                 # Windows: cmd로 실행
-                subprocess.Popen(
-                    ['cmd', '/c', updater_script],
-                    creationflags=subprocess.CREATE_NEW_CONSOLE | subprocess.DETACHED_PROCESS
+                _log("Windows 업데이트 스크립트 실행...")
+                process = subprocess.Popen(
+                    ['cmd', '/c', f'"{updater_script}"'],
+                    creationflags=subprocess.CREATE_NEW_CONSOLE | subprocess.DETACHED_PROCESS,
+                    cwd=os.path.dirname(current_exe)
                 )
+                _log(f"업데이트 프로세스 시작됨: PID {process.pid}")
             else:
                 # Linux/Mac: bash로 실행
-                subprocess.Popen(['bash', updater_script])
+                _log("Unix 업데이트 스크립트 실행...")
+                process = subprocess.Popen(['bash', updater_script])
+                _log(f"업데이트 프로세스 시작됨: PID {process.pid}")
             
             # 현재 앱 종료
             if restart:
-                _log("앱을 종료하고 업데이트를 설치합니다...")
+                _log("3초 후 앱을 종료하고 업데이트를 설치합니다...")
+                import time
+                time.sleep(3)  # 스크립트가 시작할 시간을 줌
                 sys.exit(0)
             
             return True
             
         except Exception as e:
             _log_error(f"업데이트 설치 실패: {e}")
+            import traceback
+            _log_error(f"상세 오류: {traceback.format_exc()}")
             return False
     
     @staticmethod
@@ -527,13 +557,25 @@ class AutoUpdater:
                     return
                 
                 # 설치
-                success = UpdateInstaller.install_update(update_file, restart=True, logger=self.main_app)
-                
-                if completion_callback:
-                    completion_callback(success)
+                try:
+                    self._log("업데이트 설치 시작...")
+                    success = UpdateInstaller.install_update(update_file, restart=True, logger=self.main_app)
+                    self._log(f"설치 결과: {'성공' if success else '실패'}")
+                    
+                    if completion_callback:
+                        completion_callback(success)
+                        
+                except Exception as install_error:
+                    self._log_error(f"업데이트 설치 실패: {install_error}")
+                    import traceback
+                    self._log_error(f"상세 오류: {traceback.format_exc()}")
+                    if completion_callback:
+                        completion_callback(False)
                     
             except Exception as e:
                 self._log_error(f"다운로드/설치 중 오류: {e}")
+                import traceback
+                self._log_error(f"상세 오류: {traceback.format_exc()}")
                 if completion_callback:
                     completion_callback(False)
         
