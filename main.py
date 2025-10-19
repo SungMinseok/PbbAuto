@@ -28,6 +28,7 @@ from dialogs import CommandPopup, TriggerEditor
 from scheduler import ScheduleManager, SchedulerEngine, Schedule, ScheduleType, ScheduleStatus
 from updater import AutoUpdater
 from update_dialogs import UpdateNotificationDialog, DownloadProgressDialog, AboutDialog
+from settings_dialog import SettingsDialog
 
 
 class PbbAutoApp(QWidget):
@@ -35,6 +36,7 @@ class PbbAutoApp(QWidget):
     
     # 시그널 정의 (워커 스레드에서 메인 스레드로 통신)
     execution_finished = pyqtSignal()
+    update_check_result = pyqtSignal(bool, object, str)  # has_update, info, error_msg
     
     def __init__(self):
         super().__init__()
@@ -60,6 +62,21 @@ class PbbAutoApp(QWidget):
         
         # 시그널 연결
         self.execution_finished.connect(self.on_execution_finished)
+        self.update_check_result.connect(self.on_update_check_result)
+        
+        # Settings 초기화
+        self.settings = self.load_app_settings()
+        
+        # 초기 Tesseract 경로 적용
+        tesseract_path = self.settings.get("tesseract_path", "")
+        if tesseract_path:
+            from utils import set_pytesseract_cmd
+            set_pytesseract_cmd(tesseract_path)
+            self.log(f"Tesseract 경로 로드됨: {tesseract_path}")
+        else:
+            # 자동 감지 시도
+            from utils import auto_detect_tesseract
+            auto_detect_tesseract()
         
         # 마우스 위치 실시간 추적 설정
         self.init_mouse_tracker()
@@ -282,13 +299,9 @@ class PbbAutoApp(QWidget):
         
         settings_menu = menubar.addMenu('Settings')
 
-        set_tess_action = QAction('Set Tesseract Path', self)
-        set_tess_action.triggered.connect(self.select_tesseract_file)
-        settings_menu.addAction(set_tess_action)
-
-        # test_ocr_action = QAction('Test OCR', self)
-        # test_ocr_action.triggered.connect(self.test_ocr)
-        # settings_menu.addAction(test_ocr_action)
+        settings_action = QAction('⚙️ Settings', self)
+        settings_action.triggered.connect(self.show_settings_dialog)
+        settings_menu.addAction(settings_action)
         
         # Help 메뉴 추가
         help_menu = menubar.addMenu('Help')
@@ -616,15 +629,49 @@ class PbbAutoApp(QWidget):
         else:
             self.show_error_message("Invalid file path. Please select a valid .bat file.")
 
-    def select_tesseract_file(self):
-        """Tesseract 실행파일 선택"""
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select tesseract.exe", "", "Executable Files (*.exe)")
-        if file_path:
-            if set_pytesseract_cmd(file_path):
-                save_config(file_path)
-                QMessageBox.information(self, "Tesseract", f"Tesseract set to: {file_path}")
-            else:
-                QMessageBox.warning(self, "Tesseract", "Selected file is not a valid tesseract.exe")
+    def load_app_settings(self):
+        """앱 설정 로드"""
+        default_settings = {
+            "tesseract_path": "",
+            "debug_mode": False
+        }
+        
+        try:
+            if os.path.exists("config.json"):
+                with open("config.json", 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    if isinstance(config, dict):
+                        default_settings.update(config)
+        except Exception as e:
+            self.log_error(f"설정 로드 오류: {e}")
+        
+        return default_settings
+    
+    def show_settings_dialog(self):
+        """설정 다이얼로그 표시"""
+        try:
+            dialog = SettingsDialog(self)
+            dialog.settings_changed.connect(self.on_settings_changed)
+            dialog.exec_()
+        except Exception as e:
+            self.log_error(f"설정 다이얼로그 오류: {e}")
+            QMessageBox.critical(
+                self,
+                "오류",
+                f"설정 다이얼로그를 열 수 없습니다.\n\n{e}"
+            )
+    
+    def on_settings_changed(self):
+        """설정 변경 시 호출"""
+        # 설정 다시 로드
+        self.settings = self.load_app_settings()
+        self.log("설정이 업데이트되었습니다.")
+        
+        # Tesseract 경로 적용
+        tesseract_path = self.settings.get("tesseract_path", "")
+        if tesseract_path:
+            from utils import set_pytesseract_cmd
+            set_pytesseract_cmd(tesseract_path)
 
     def test_ocr(self):
         """OCR 테스트"""
@@ -1237,6 +1284,11 @@ class PbbAutoApp(QWidget):
 
     def log(self, message):
         """로그 추가"""
+        # Debug 모드 처리
+        debug_mode = self.settings.get("debug_mode", False) if hasattr(self, 'settings') else False
+        if not debug_mode and "[DEBUG]" in message:
+            return  # Debug 모드가 비활성화되어 있으면 DEBUG 메시지 무시
+        
         from datetime import datetime
         timestamp = datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
         msg_with_time = f"{timestamp} {message}"
@@ -1248,6 +1300,11 @@ class PbbAutoApp(QWidget):
 
     def log_error(self, message):
         """에러 로그 추가 (빨간색)"""
+        # Debug 모드 처리
+        debug_mode = self.settings.get("debug_mode", False) if hasattr(self, 'settings') else False
+        if not debug_mode and "[DEBUG]" in message:
+            return  # Debug 모드가 비활성화되어 있으면 DEBUG 메시지 무시
+        
         from datetime import datetime
         timestamp = datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
         msg_with_time = f"{timestamp} {message}"
@@ -1554,70 +1611,185 @@ class PbbAutoApp(QWidget):
         """업데이트 확인 (메뉴에서 수동 호출)"""
         self.log("수동 업데이트 확인 중...")
         
-        def callback(has_update, info, error_msg):
-            # 비동기 스레드에서 호출되므로 메인 스레드로 전환
-            def show_result():
-                if error_msg:
-                    # 에러 발생
-                    QMessageBox.warning(
-                        self,
-                        "업데이트 확인 실패",
-                        f"업데이트를 확인할 수 없습니다.\n\n{error_msg}"
-                    )
-                elif has_update:
-                    # 새 버전 발견
-                    dialog = UpdateNotificationDialog(info, self)
-                    result = dialog.exec_()
-                    
-                    if result == QDialog.Accepted:
-                        # 지금 업데이트 선택
-                        self.start_update_download(info)
-                    elif result == 2:  # Skip
-                        print(f"버전 {info['version']} 건너뛰기")
-                else:
-                    # 최신 버전 사용 중
-                    QMessageBox.information(
-                        self,
-                        "업데이트 확인",
-                        "현재 최신 버전을 사용하고 있습니다."
-                    )
-            
-            # 메인 스레드에서 실행
-            QTimer.singleShot(0, show_result)
+        def signal_callback(has_update, info, error_msg):
+            # 워커 스레드에서 시그널 발송
+            self.log(f"[DEBUG] signal_callback 도착 - has_update: {has_update}, error_msg: {error_msg}")
+            self.update_check_result.emit(has_update, info, error_msg or "")
         
-        self.auto_updater.check_updates_async(callback)
+        self.log("[DEBUG] auto_updater.check_updates_async 호출 시도")
+        try:
+            self.auto_updater.check_updates_async(signal_callback)
+            self.log("[DEBUG] auto_updater.check_updates_async 성공")
+        except Exception as e:
+            self.log_error(f"업데이트 확인 시작 실패: {e}")
+            QMessageBox.critical(
+                self,
+                "오류",
+                f"업데이트 확인을 시작할 수 없습니다.\n\n{e}"
+            )
+    
+    def on_update_check_result(self, has_update, info, error_msg):
+        """업데이트 확인 결과 처리 (메인 스레드에서 실행)"""
+        self.log("[DEBUG] on_update_check_result 시그널 수신")
+        self.log(f"[DEBUG] 조건 확인 - error_msg: '{error_msg}', has_update: {has_update}, info: {info}")
+        
+        try:
+            if error_msg:
+                # 에러 발생 팝업
+                self.log("[DEBUG] 에러 발생 분기로 진입")
+                QMessageBox.warning(
+                    self,
+                    "업데이트 확인 실패",
+                    f"업데이트를 확인할 수 없습니다.\n\n{error_msg}"
+                )
+                self.log_error(f"업데이트 확인 실패: {error_msg}")
+            elif has_update and info:
+                # 새 버전 발견 - 업데이트 여부 확인 팝업
+                self.log("[DEBUG] 업데이트 있음 분기로 진입")
+                try:
+                    version = info.get('version', '알 수 없음')
+                    reply = QMessageBox.question(
+                        self,
+                        "업데이트 사용 가능",
+                        f"🎉 새로운 버전이 있습니다!\n\n"
+                        f"새 버전: {version}\n\n"
+                        f"지금 업데이트하시겠습니까?",
+                        QMessageBox.Yes | QMessageBox.No,
+                        QMessageBox.Yes
+                    )
+                    
+                    if reply == QMessageBox.Yes:
+                        # 예 - 업데이트 진행
+                        self.start_update_download(info)
+                    else:
+                        # 아니오 - 업데이트 취소
+                        self.log(f"사용자가 버전 {version} 업데이트를 취소했습니다.")
+                        
+                except Exception as e:
+                    self.log_error(f"업데이트 팝업 표시 중 오류: {e}")
+                    QMessageBox.critical(
+                        self,
+                        "오류",
+                        f"업데이트 알림을 표시하는 중 오류가 발생했습니다.\n\n{e}"
+                    )
+            else:
+                # 최신 버전 사용 중 팝업
+                self.log("[DEBUG] 최신 버전 분기로 진입")
+                QMessageBox.information(
+                    self,
+                    "업데이트 확인 완료",
+                    "✅ 업데이트가 없습니다.\n현재 최신 버전을 사용하고 있습니다."
+                )
+                self.log("업데이트 확인 완료: 최신 버전 사용 중")
+                
+        except Exception as e:
+            self.log_error(f"업데이트 확인 결과 처리 중 오류: {e}")
+            import traceback
+            self.log_error(f"디테일 오류: {traceback.format_exc()}")
+            QMessageBox.critical(
+                self,
+                "오류",
+                f"업데이트 확인 중 예상치 못한 오류가 발생했습니다.\n\n{e}"
+            )
     
     def start_update_download(self, update_info):
         """업데이트 다운로드 시작"""
-        # 다운로드 진행률 다이얼로그 표시
-        progress_dialog = DownloadProgressDialog(self)
-        progress_dialog.show()
-        
-        def progress_callback(received, total):
-            """진행률 콜백"""
-            progress_dialog.update_progress(received, total)
-        
-        def completion_callback(success):
-            """완료 콜백"""
-            if success:
-                progress_dialog.download_complete()
-                QMessageBox.information(
+        try:
+            if not update_info:
+                self.log_error("업데이트 정보가 없습니다.")
+                QMessageBox.warning(
                     self,
-                    "업데이트 설치",
-                    "업데이트가 다운로드되었습니다.\n앱을 재시작하여 업데이트를 적용합니다."
+                    "오류",
+                    "업데이트 정보가 없습니다."
                 )
-                # install_update 메서드가 자동으로 재시작함
-            else:
-                progress_dialog.close()
-                if not progress_dialog.cancelled:
-                    QMessageBox.warning(
+                return
+            
+            # 다운로드 진행률 다이얼로그 표시
+            try:
+                progress_dialog = DownloadProgressDialog(self)
+                progress_dialog.show()
+            except Exception as e:
+                self.log_error(f"다운로드 진행률 다이얼로그 생성 실패: {e}")
+                QMessageBox.critical(
+                    self,
+                    "오류",
+                    f"다운로드 진행률 표시를 위한 다이얼로그를 생성할 수 없습니다.\n\n{e}"
+                )
+                return
+            
+            def progress_callback(received, total):
+                """진행률 콜백"""
+                try:
+                    if progress_dialog and not progress_dialog.cancelled:
+                        progress_dialog.update_progress(received, total)
+                except Exception as e:
+                    self.log_error(f"진행률 업데이트 중 오류: {e}")
+            
+            def completion_callback(success):
+                """완료 콜백"""
+                try:
+                    if success:
+                        if progress_dialog:
+                            try:
+                                progress_dialog.download_complete()
+                            except Exception as e:
+                                self.log_error(f"다운로드 완료 처리 중 오류: {e}")
+                        
+                        QMessageBox.information(
+                            self,
+                            "업데이트 설치",
+                            "업데이트가 다운로드되었습니다.\n앱을 재시작하여 업데이트를 적용합니다."
+                        )
+                        # install_update 메서드가 자동으로 재시작함
+                    else:
+                        if progress_dialog:
+                            try:
+                                progress_dialog.close()
+                            except Exception as e:
+                                self.log_error(f"다운로드 다이얼로그 닫기 중 오류: {e}")
+                        
+                        if not progress_dialog or not progress_dialog.cancelled:
+                            QMessageBox.warning(
+                                self,
+                                "업데이트 실패",
+                                "업데이트 다운로드에 실패했습니다.\n나중에 다시 시도해주세요."
+                            )
+                except Exception as e:
+                    self.log_error(f"업데이트 완료 콜백 실행 중 오류: {e}")
+                    if progress_dialog:
+                        try:
+                            progress_dialog.close()
+                        except:
+                            pass
+                    QMessageBox.critical(
                         self,
-                        "업데이트 실패",
-                        "업데이트 다운로드에 실패했습니다.\n나중에 다시 시도해주세요."
+                        "오류",
+                        f"업데이트 완료 처리 중 오류가 발생했습니다.\n\n{e}"
                     )
+            
+            # 다운로드 및 설치 시작
+            try:
+                self.auto_updater.download_and_install(progress_callback, completion_callback)
+            except Exception as e:
+                self.log_error(f"업데이트 다운로드 시작 실패: {e}")
+                if progress_dialog:
+                    try:
+                        progress_dialog.close()
+                    except:
+                        pass
+                QMessageBox.critical(
+                    self,
+                    "오류",
+                    f"업데이트 다운로드를 시작할 수 없습니다.\n\n{e}"
+                )
         
-        # 다운로드 및 설치 시작
-        self.auto_updater.download_and_install(progress_callback, completion_callback)
+        except Exception as e:
+            self.log_error(f"업데이트 다운로드 시작 중 예상치 못한 오류: {e}")
+            QMessageBox.critical(
+                self,
+                "오류",
+                f"업데이트 다운로드 시작 중 예상치 못한 오류가 발생했습니다.\n\n{e}"
+            )
     
     def show_about_dialog(self):
         """정보 다이얼로그 표시"""

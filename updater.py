@@ -69,9 +69,11 @@ class UpdateChecker:
             (업데이트 가능 여부, 최신 버전 정보, 에러 메시지)
         """
         try:
+            self._log("[DEBUG] UpdateChecker.check_for_updates 시작")
             # update_url이 없으면 version.json에서 가져오기
             if not update_url:
                 update_url = self._get_update_url()
+                self._log(f"[DEBUG] version.json에서 로드한 URL: {update_url}")
             
             if not update_url:
                 error_msg = "업데이트 URL이 설정되지 않았습니다."
@@ -79,10 +81,12 @@ class UpdateChecker:
                 return False, None, error_msg
             
             self._log(f"업데이트 확인 중... (현재 버전: {self.current_version})")
+            self._log(f"[DEBUG] GitHub API 호출: {update_url}")
             
             # GitHub API 호출
             response = requests.get(update_url, timeout=10)
             response.raise_for_status()
+            self._log("[DEBUG] GitHub API 응답 수신 성공")
             
             release_info = response.json()
             
@@ -98,11 +102,14 @@ class UpdateChecker:
             }
             
             # 버전 비교
+            self._log(f"[DEBUG] 버전 비교 - 현재: {self.current_version}, 최신: {latest_version}")
             if version.parse(latest_version) > version.parse(self.current_version):
                 self._log(f"새로운 버전 발견: {latest_version}")
+                self._log(f"[DEBUG] 반환 값: True, info, None")
                 return True, self.latest_info, None
             else:
                 self._log("최신 버전을 사용 중입니다.")
+                self._log("[DEBUG] 반환 값: False, None, None")
                 return False, None, None  # 에러 없음, 단지 최신 버전임
                 
         except requests.RequestException as e:
@@ -454,15 +461,43 @@ class AutoUpdater:
             callback: 완료 콜백 함수 (has_update, info, error_msg)
         """
         def check_thread():
-            has_update, info, error_msg = self.checker.check_for_updates()
-            self.update_available = has_update
-            self.latest_info = info
-            
-            if callback:
-                callback(has_update, info, error_msg)
+            try:
+                self._log("[DEBUG] 업데이트 확인 스레드 시작")
+                has_update, info, error_msg = self.checker.check_for_updates()
+                self._log(f"[DEBUG] check_for_updates 결과 - has_update: {has_update}, error_msg: {error_msg}, info 타입: {type(info)}")
+                
+                self.update_available = has_update
+                self.latest_info = info
+                
+                if callback:
+                    try:
+                        self._log("[DEBUG] 콜백 함수 호출 시도")
+                        callback(has_update, info, error_msg)
+                        self._log("[DEBUG] 콜백 함수 호출 성공")
+                    except Exception as e:
+                        self._log_error(f"업데이트 콜백 실행 중 오류: {e}")
+                else:
+                    self._log("[DEBUG] 콜백 함수가 None입니다.")
+            except Exception as e:
+                self._log_error(f"업데이트 확인 스레드 중 예상치 못한 오류: {e}")
+                if callback:
+                    try:
+                        callback(False, None, f"업데이트 확인 중 내부 오류가 발생했습니다: {str(e)}")
+                    except Exception as callback_error:
+                        self._log_error(f"오류 콜백 실행 중 추가 오류: {callback_error}")
         
-        thread = threading.Thread(target=check_thread, daemon=True)
-        thread.start()
+        self._log("[DEBUG] 스레드 생성 및 시작 시도")
+        try:
+            thread = threading.Thread(target=check_thread, daemon=True)
+            thread.start()
+            self._log("[DEBUG] 스레드 시작 성공")
+        except Exception as e:
+            self._log_error(f"업데이트 확인 스레드 시작 실패: {e}")
+            if callback:
+                try:
+                    callback(False, None, f"업데이트 확인 시스템을 시작할 수 없습니다: {str(e)}")
+                except Exception as callback_error:
+                    self._log_error(f"오류 콜백 실행 중 추가 오류: {callback_error}")
     
     def download_and_install(self, progress_callback=None, completion_callback=None):
         """

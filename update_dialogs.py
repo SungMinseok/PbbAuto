@@ -21,10 +21,26 @@ class UpdateNotificationDialog(QDialog):
     
     def __init__(self, update_info, parent=None):
         super().__init__(parent)
-        self.update_info = update_info
+        # update_info 안전성 검사
+        if not update_info or not isinstance(update_info, dict):
+            self.update_info = {
+                'version': '알 수 없음',
+                'name': '업데이트',
+                'body': '업데이트 정보를 불러올 수 없습니다.',
+                'published_at': '',
+                'assets': []
+            }
+        else:
+            self.update_info = update_info
+        
         self.setWindowTitle("업데이트 사용 가능")
         self.resize(500, 400)
-        self.init_ui()
+        try:
+            self.init_ui()
+        except Exception as e:
+            print(f"UpdateNotificationDialog UI 초기화 오류: {e}")
+            # 기본 UI로 대체
+            self._init_fallback_ui()
     
     def init_ui(self):
         layout = QVBoxLayout()
@@ -86,6 +102,28 @@ class UpdateNotificationDialog(QDialog):
         """이 버전 건너뛰기"""
         # TODO: 건너뛴 버전을 설정 파일에 저장
         self.done(2)  # 2 = Skip
+    
+    def _init_fallback_ui(self):
+        """기본 UI (오류 발생 시 대체용)"""
+        layout = QVBoxLayout()
+        
+        layout.addWidget(QLabel("업데이트 정보"))
+        layout.addWidget(QLabel(f"버전: {self.update_info.get('version', '알 수 없음')}"))
+        
+        # 기본 버튼
+        button_layout = QHBoxLayout()
+        
+        cancel_btn = QPushButton("취소")
+        cancel_btn.clicked.connect(self.reject)
+        
+        ok_btn = QPushButton("확인")
+        ok_btn.clicked.connect(self.accept)
+        
+        button_layout.addWidget(cancel_btn)
+        button_layout.addWidget(ok_btn)
+        
+        layout.addLayout(button_layout)
+        self.setLayout(layout)
 
 
 class DownloadProgressDialog(QDialog):
@@ -266,14 +304,26 @@ class AboutDialog(QDialog):
     
     def check_updates(self):
         """업데이트 확인 - 부모 위젯의 메서드 호출"""
-        if self.parent() and hasattr(self.parent(), 'check_for_updates'):
-            self.parent().check_for_updates()
-            self.accept()
-        else:
-            QMessageBox.information(
+        try:
+            if self.parent() and hasattr(self.parent(), 'check_for_updates'):
+                # About 다이얼로그 닫기
+                self.accept()
+                
+                # 부모 에서 업데이트 확인 실행 (부모에서 팝업 처리)
+                self.parent().check_for_updates()
+                
+            else:
+                QMessageBox.information(
+                    self,
+                    "업데이트 확인",
+                    "업데이트를 확인하려면 메뉴에서 '업데이트 확인'을 선택하세요."
+                )
+        except Exception as e:
+            print(f"About 다이얼로그에서 업데이트 확인 중 오류: {e}")
+            QMessageBox.critical(
                 self,
-                "업데이트 확인",
-                "업데이트를 확인하려면 메뉴에서 '업데이트 확인'을 선택하세요."
+                "오류",
+                f"업데이트 확인 중 오류가 발생했습니다.\n\n{e}"
             )
 
 
