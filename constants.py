@@ -1,15 +1,25 @@
 import os
+import sys
 
-# 디렉토리 설정
-current_dir = os.path.dirname(os.path.abspath(__file__))
+# 디렉토리 설정 - PyInstaller exe 환경 고려
+def get_app_dir():
+    """애플리케이션 실행 디렉토리 반환 (exe/개발환경 모두 고려)"""
+    if getattr(sys, 'frozen', False):
+        # PyInstaller로 빌드된 exe 환경
+        return os.path.dirname(sys.executable)
+    else:
+        # 일반 Python 스크립트 환경
+        return os.path.dirname(os.path.abspath(__file__))
+
+current_dir = get_app_dir()
 
 screenshot_dir = os.path.join(current_dir, 'screenshot')
 if not os.path.exists(screenshot_dir):
     os.makedirs(screenshot_dir)
 
-cl_dir = os.path.join(current_dir, 'checklist')
-if not os.path.exists(cl_dir):
-    os.makedirs(cl_dir)
+# cl_dir = os.path.join(current_dir, 'checklist')
+# if not os.path.exists(cl_dir):
+#     os.makedirs(cl_dir)
     
 # dir_preset = 'preset'
 # if not os.path.exists(dir_preset):

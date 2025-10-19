@@ -23,3 +23,4 @@ version_info.txt
 *.pyo
 main.py
 git_log_with_diff_bundleEditor.txt
+.cursor/config.json
