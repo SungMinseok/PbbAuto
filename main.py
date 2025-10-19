@@ -7,6 +7,7 @@ import os
 import json
 import threading
 import subprocess
+import traceback
 from datetime import datetime
 import pygetwindow as gw
 import pyautogui as pag
@@ -2289,18 +2290,83 @@ class ScheduleDialog(QDialog):
         if self.parent_widget and hasattr(self.parent_widget, 'update_schedule_status'):
             self.parent_widget.update_schedule_status()
 
-import traceback
+def handle_exception(exc_type, exc_value, exc_traceback):
+    """전역 예외 처리기 - 처리되지 않은 모든 예외를 로그에 기록"""
+    if issubclass(exc_type, KeyboardInterrupt):
+        # KeyboardInterrupt는 기본 처리
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+    
+    # 로그 디렉토리가 없으면 생성
+    os.makedirs("logs", exist_ok=True)
+    
+    # 에러 로그 파일에 기록
+    error_filename = f"logs/error_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+    with open(error_filename, "w", encoding="utf-8") as f:
+        f.write(f"Unhandled exception occurred at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"Exception type: {exc_type.__name__}\n")
+        f.write(f"Exception value: {exc_value}\n")
+        f.write("Traceback:\n")
+        traceback.print_exception(exc_type, exc_value, exc_traceback, file=f)
+    
+    # 콘솔에도 출력 (디버깅 시 유용)
+    print(f"\n❌ 심각한 오류가 발생했습니다! 오류 로그: {error_filename}")
+    traceback.print_exception(exc_type, exc_value, exc_traceback)
+    
+    # 애플리케이션이 실행 중이면 메시지박스 표시
+    try:
+        from PyQt5.QtWidgets import QMessageBox, QApplication
+        app = QApplication.instance()
+        if app is not None:
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Critical)
+            msg.setWindowTitle("심각한 오류 발생")
+            msg.setText(f"처리되지 않은 오류가 발생했습니다.\n\n"
+                       f"오류 유형: {exc_type.__name__}\n"
+                       f"오류 내용: {str(exc_value)}\n\n"
+                       f"자세한 정보는 로그 파일을 확인하세요:\n{error_filename}")
+            msg.exec_()
+    except Exception:
+        # 메시지박스 표시 실패해도 프로그램은 종료되어야 함
+        pass
 
 if __name__ == '__main__':
+    # 전역 예외 처리기 설정
+    sys.excepthook = handle_exception
+    
     try:
         app = QApplication(sys.argv)
+        
+        # Qt 애플리케이션 내부 예외도 처리하기 위한 커스텀 이벤트 필터
+        def qt_exception_handler(exc_type, exc_value, exc_traceback):
+            handle_exception(exc_type, exc_value, exc_traceback)
+            return True  # 예외가 처리됨을 표시
+        
+        # Qt 내부 예외 처리 (PyQt5 특화)
+        try:
+            # PyQt5에서는 이 방법으로 내부 예외를 잡을 수 있음
+            sys.excepthook = qt_exception_handler
+        except:
+            pass  # 설정 실패해도 기본 excepthook은 이미 설정됨
+        
         ex = PbbAutoApp()
         ex.show()
+        
+        # 애플리케이션 시작 전 마지막 예외 처리 설정
+        print("🚀 PbbAuto 애플리케이션이 시작됩니다...")
+        print("📝 모든 예외는 logs/ 폴더에 자동으로 기록됩니다.")
+        
         sys.exit(app.exec_())
+        
     except Exception as e:
-        with open(f"logs/error_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt", "w", encoding="utf-8") as f:
-            f.write("Unhandled exception occurred:\n")
+        # main 실행 중 예외 발생 시
+        os.makedirs("logs", exist_ok=True)
+        error_filename = f"logs/error_main_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        with open(error_filename, "w", encoding="utf-8") as f:
+            f.write(f"Main execution error occurred at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write("Exception details:\n")
             traceback.print_exc(file=f)
-        # Optional: 콘솔에도 출력 (디버깅 시 유용)
+        
+        print(f"\n❌ Main 실행 중 오류 발생! 오류 로그: {error_filename}")
         traceback.print_exc()
         sys.exit(1)
