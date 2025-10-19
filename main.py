@@ -2289,10 +2289,18 @@ class ScheduleDialog(QDialog):
         if self.parent_widget and hasattr(self.parent_widget, 'update_schedule_status'):
             self.parent_widget.update_schedule_status()
 
+import traceback
 
-# Main function
 if __name__ == '__main__':
-    app = QApplication(sys.argv)
-    ex = PbbAutoApp()
-    ex.show()
-    sys.exit(app.exec_())
+    try:
+        app = QApplication(sys.argv)
+        ex = PbbAutoApp()
+        ex.show()
+        sys.exit(app.exec_())
+    except Exception as e:
+        with open(f"logs/error_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt", "w", encoding="utf-8") as f:
+            f.write("Unhandled exception occurred:\n")
+            traceback.print_exc(file=f)
+        # Optional: 콘솔에도 출력 (디버깅 시 유용)
+        traceback.print_exc()
+        sys.exit(1)
