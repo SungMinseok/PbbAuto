@@ -39,6 +39,63 @@ class CommandBase(ABC):
         self.last_result = "N/A"
         self.checklist_file = "checklist.xlsx"
         self.cl_path = os.path.join(cl_dir, self.checklist_file)
+        self.main_app = None  # 메인 앱 참조
+    
+    def set_main_app(self, main_app):
+        """메인 앱 참조 설정"""
+        self.main_app = main_app
+    
+    def create_window_info_layout(self):
+        """현재 선택된 윈도우 정보를 보여주는 레이아웃 생성"""
+        info_layout = QHBoxLayout()
+        info_layout.addWidget(QLabel('현재 선택된 앱:'))
+        
+        self.window_info_dropdown = QComboBox()
+        self.window_info_dropdown.setMinimumWidth(200)
+        self.window_info_dropdown.setEnabled(True)
+        
+        # 드롭다운 변경 시 메인 앱의 dropdown도 변경
+        self.window_info_dropdown.currentTextChanged.connect(self.on_window_changed)
+        
+        info_layout.addWidget(self.window_info_dropdown)
+        
+        # 새로고침 버튼
+        refresh_btn = QPushButton('새로고침')
+        refresh_btn.clicked.connect(self.refresh_window_info)
+        refresh_btn.setMaximumWidth(80)
+        info_layout.addWidget(refresh_btn)
+        
+        return info_layout
+    
+    def refresh_window_info(self):
+        """윈도우 정보 새로고침"""
+        if self.main_app and hasattr(self.main_app, 'window_dropdown'):
+            # 메인 앱의 윈도우 목록 가져오기
+            current_text = self.main_app.window_dropdown.currentText()
+            
+            # 드롭다운 업데이트
+            self.window_info_dropdown.clear()
+            for i in range(self.main_app.window_dropdown.count()):
+                item_text = self.main_app.window_dropdown.itemText(i)
+                self.window_info_dropdown.addItem(item_text)
+            
+            # 현재 선택된 항목으로 설정
+            index = self.window_info_dropdown.findText(current_text)
+            if index >= 0:
+                self.window_info_dropdown.setCurrentIndex(index)
+    
+    def initialize_window_info(self):
+        """윈도우 정보 초기화 (명령어 편집 창이 열릴 때 호출)"""
+        if hasattr(self, 'window_info_dropdown'):
+            # UI가 생성된 후에만 초기화
+            self.refresh_window_info()
+    
+    def on_window_changed(self, text):
+        """윈도우 선택 변경 시 메인 앱의 dropdown도 변경"""
+        if self.main_app and hasattr(self.main_app, 'window_dropdown'):
+            index = self.main_app.window_dropdown.findText(text)
+            if index >= 0:
+                self.main_app.window_dropdown.setCurrentIndex(index)
     
     @property
     @abstractmethod
@@ -56,6 +113,26 @@ class CommandBase(ABC):
     def create_ui(self) -> QWidget:
         """UI 위젯 생성"""
         pass
+    
+    def create_ui_with_window_info(self):
+        """윈도우 정보가 포함된 UI 생성 (모든 명령어에서 사용)"""
+        # 실제 UI 생성
+        main_widget = self.create_ui()
+        
+        # 윈도우 정보를 맨 위에 추가
+        container = QWidget()
+        layout = QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        # 윈도우 정보 레이아웃 추가
+        window_info_layout = self.create_window_info_layout()
+        layout.addLayout(window_info_layout)
+        
+        # 원래 UI 추가
+        layout.addWidget(main_widget)
+        
+        container.setLayout(layout)
+        return container
     
     @abstractmethod
     def parse_params(self, params: list) -> dict:
@@ -83,7 +160,7 @@ class PressCommand(CommandBase):
     
     @property
     def name(self) -> str:
-        return "press"
+        return "Press"
     
     @property
     def description(self) -> str:
@@ -225,7 +302,7 @@ class WriteCommand(CommandBase):
     
     @property
     def name(self) -> str:
-        return "write"
+        return "Write"
     
     @property
     def description(self) -> str:
@@ -266,7 +343,7 @@ class WaitCommand(CommandBase):
     
     @property
     def name(self) -> str:
-        return "wait"
+        return "Wait"
     
     @property
     def description(self) -> str:
@@ -358,7 +435,7 @@ class ScreenshotCommand(CommandBase):
     
     @property
     def name(self) -> str:
-        return "screenshot"
+        return "Screenshot"
     
     @property
     def description(self) -> str:
@@ -569,7 +646,7 @@ class ClickCommand(CommandBase):
     
     @property
     def name(self) -> str:
-        return "click"
+        return "Click"
     
     @property
     def description(self) -> str:
@@ -787,7 +864,7 @@ class ClickCommand(CommandBase):
                 pyd.mouseUp()
                 print(f'Mouse up at ({adjusted_x}, {adjusted_y})')
             else:
-                # 기본 모드: 즉시 클릭
+                # 기본 모드: 즉시 클릭                                      
                 pyd.mouseDown()
                 time.sleep(0.05)
                 pyd.mouseUp()
@@ -801,7 +878,7 @@ class DragCommand(CommandBase):
     
     @property
     def name(self) -> str:
-        return "drag"
+        return "Drag"
     
     @property
     def description(self) -> str:
@@ -995,7 +1072,7 @@ class DragCommand(CommandBase):
 # 간단한 명령어들 (파라미터가 없는 것들)
 class I2sCommand(CommandBase):
     @property
-    def name(self): return "i2s"
+    def name(self): return "I2S"
     @property 
     def description(self): return "OCR in English"
     def create_ui(self): 
@@ -1015,7 +1092,7 @@ class I2sCommand(CommandBase):
 
 class I2skrCommand(CommandBase):
     @property
-    def name(self): return "i2skr"
+    def name(self): return "I2SKR"
     @property
     def description(self): return "OCR in Korean"
     def create_ui(self): 
@@ -1037,7 +1114,7 @@ class WaitUntilCommand(CommandBase):
     
     @property
     def name(self): 
-        return "waituntil"
+        return "WaitUntil"
     
     @property
     def description(self): 
@@ -1472,12 +1549,238 @@ class WaitUntilCommand(CommandBase):
             QMessageBox.critical(None, "OCR 테스트 오류", f"테스트 중 오류가 발생했습니다:\n{e}")
 
 
+class MouseWheelCommand(CommandBase):
+    """마우스 휠 조작 명령어"""
+    
+    @property
+    def name(self):
+        return "MouseWheel"
+    
+    @property 
+    def description(self):
+        return "마우스 휠을 조작하여 스크롤 (방향, 강도 설정 가능)"
+    
+    def create_ui(self):
+        widget = QWidget()
+        layout = QVBoxLayout()
+        
+        # 휠 방향 선택
+        direction_layout = QHBoxLayout()
+        direction_layout.addWidget(QLabel('휠 방향:'))
+        self.direction_combo = QComboBox()
+        self.direction_combo.addItems(['Up (위로)', 'Down (아래로)'])
+        direction_layout.addWidget(self.direction_combo)
+        layout.addLayout(direction_layout)
+        
+        # 휠 강도 (스크롤 횟수)
+        strength_layout = QHBoxLayout()
+        strength_layout.addWidget(QLabel('스크롤 횟수:'))
+        self.strength_input = QSpinBox()
+        self.strength_input.setRange(1, 50)
+        self.strength_input.setValue(3)
+        self.strength_input.setSuffix('회')
+        strength_layout.addWidget(self.strength_input)
+        layout.addLayout(strength_layout)
+        
+        # 마우스 위치 설정
+        position_layout = QHBoxLayout()
+        position_layout.addWidget(QLabel('마우스 위치:'))
+        self.position_combo = QComboBox()
+        self.position_combo.addItems(['현재 위치', '지정 좌표'])
+        self.position_combo.currentTextChanged.connect(self.on_position_changed)
+        position_layout.addWidget(self.position_combo)
+        layout.addLayout(position_layout)
+        
+        # 좌표 입력 (지정 좌표 선택 시에만 활성화)
+        coord_layout = QHBoxLayout()
+        coord_layout.addWidget(QLabel('X:'))
+        self.x_input = QSpinBox()
+        self.x_input.setRange(-9999, 9999)
+        self.x_input.setValue(0)
+        self.x_input.setEnabled(False)
+        coord_layout.addWidget(self.x_input)
+        
+        coord_layout.addWidget(QLabel('Y:'))
+        self.y_input = QSpinBox()
+        self.y_input.setRange(-9999, 9999)
+        self.y_input.setValue(0)
+        self.y_input.setEnabled(False)
+        coord_layout.addWidget(self.y_input)
+        layout.addLayout(coord_layout)
+        
+        # 좌표 모드 선택
+        coord_mode_layout = QHBoxLayout()
+        coord_mode_layout.addWidget(QLabel('좌표 모드:'))
+        self.coord_mode_combo = QComboBox()
+        self.coord_mode_combo.addItems(['스케일링 (기준해상도 기반)', '오프셋 (단순 위치이동)'])
+        self.coord_mode_combo.setCurrentIndex(0)
+        self.coord_mode_combo.setEnabled(False)
+        coord_mode_layout.addWidget(self.coord_mode_combo)
+        layout.addLayout(coord_mode_layout)
+        
+        # 대기 시간
+        delay_layout = QHBoxLayout()
+        delay_layout.addWidget(QLabel('실행 후 대기:'))
+        self.delay_input = QSpinBox()
+        self.delay_input.setRange(0, 5000)
+        self.delay_input.setValue(500)
+        self.delay_input.setSuffix('ms')
+        delay_layout.addWidget(self.delay_input)
+        layout.addLayout(delay_layout)
+        
+        widget.setLayout(layout)
+        return widget
+    
+    def on_position_changed(self, text):
+        """위치 모드 변경 시 호출"""
+        is_custom = (text == '지정 좌표')
+        self.x_input.setEnabled(is_custom)
+        self.y_input.setEnabled(is_custom)
+        self.coord_mode_combo.setEnabled(is_custom)
+    
+    def parse_params(self, params):
+        if len(params) < 2:
+            return {}
+        
+        try:
+            parsed = {
+                'direction': params[0],  # 'up' or 'down'
+                'strength': int(params[1]),  # 스크롤 횟수
+                'position_mode': 'current',  # 기본값
+                'x': 0,
+                'y': 0,
+                'coord_mode': 'scaled',
+                'delay': 500
+            }
+            
+            # 추가 파라미터들 (선택적)
+            if len(params) > 2:
+                parsed['position_mode'] = params[2]  # 'current' or 'custom'
+            
+            if len(params) > 3:
+                parsed['x'] = int(params[3])
+            
+            if len(params) > 4:
+                parsed['y'] = int(params[4])
+            
+            if len(params) > 5:
+                parsed['coord_mode'] = params[5]
+            
+            if len(params) > 6:
+                parsed['delay'] = int(params[6])
+            
+            return parsed
+            
+        except (ValueError, IndexError):
+            return {}
+    
+    def set_ui_values(self, params):
+        if not params:
+            return
+        
+        # 방향 설정
+        direction = params.get('direction', 'up')
+        if direction.lower() == 'down':
+            self.direction_combo.setCurrentIndex(1)
+        else:
+            self.direction_combo.setCurrentIndex(0)
+        
+        # 강도 설정
+        self.strength_input.setValue(params.get('strength', 3))
+        
+        # 위치 모드 설정
+        position_mode = params.get('position_mode', 'current')
+        if position_mode == 'custom':
+            self.position_combo.setCurrentIndex(1)
+        else:
+            self.position_combo.setCurrentIndex(0)
+        
+        # 좌표 설정
+        self.x_input.setValue(params.get('x', 0))
+        self.y_input.setValue(params.get('y', 0))
+        
+        # 좌표 모드 설정
+        coord_mode = params.get('coord_mode', 'scaled')
+        if coord_mode == 'offset':
+            self.coord_mode_combo.setCurrentIndex(1)
+        else:
+            self.coord_mode_combo.setCurrentIndex(0)
+        
+        # 대기 시간 설정
+        self.delay_input.setValue(params.get('delay', 500))
+    
+    def get_command_string(self):
+        direction = 'down' if self.direction_combo.currentIndex() == 1 else 'up'
+        strength = self.strength_input.value()
+        
+        if self.position_combo.currentIndex() == 1:  # 지정 좌표
+            position_mode = 'custom'
+            x = self.x_input.value()
+            y = self.y_input.value()
+            coord_mode = 'offset' if self.coord_mode_combo.currentIndex() == 1 else 'scaled'
+            delay = self.delay_input.value()
+            return f"mousewheel {direction} {strength} {position_mode} {x} {y} {coord_mode} {delay}"
+        else:  # 현재 위치
+            delay = self.delay_input.value()
+            return f"mousewheel {direction} {strength} current 0 0 scaled {delay}"
+    
+    def execute(self, params, window_coords=None, processor_state=None):
+        if not params or 'direction' not in params or 'strength' not in params:
+            print("오류: mousewheel 명령어에 필요한 파라미터가 없습니다.")
+            return
+        
+        direction = params.get('direction', 'up').lower()
+        strength = params.get('strength', 3)
+        position_mode = params.get('position_mode', 'current')
+        x = params.get('x', 0)
+        y = params.get('y', 0)
+        coord_mode = params.get('coord_mode', 'scaled')
+        delay = params.get('delay', 500)
+        
+        try:
+            import pyautogui as pag
+            
+            # 마우스 위치 설정
+            if position_mode == 'custom':
+                # 좌표 보정
+                if window_coords:
+                    if coord_mode == 'offset':
+                        adjusted_coords = calculate_offset_coordinates(x, y, window_coords)
+                    else:  # 'scaled'
+                        adjusted_coords = calculate_adjusted_coordinates(x, y, window_coords)
+                    final_x, final_y = adjusted_coords
+                else:
+                    final_x, final_y = x, y
+                
+                # 마우스를 지정 위치로 이동
+                pag.moveTo(final_x, final_y)
+                print(f"마우스를 ({final_x}, {final_y})로 이동")
+            else:
+                final_x, final_y = pag.position()
+                print(f"현재 마우스 위치: ({final_x}, {final_y})")
+            
+            # 휠 스크롤 실행
+            scroll_direction = strength if direction == 'up' else -strength
+            pag.scroll(scroll_direction)
+            
+            direction_text = "위로" if direction == 'up' else "아래로"
+            print(f"마우스 휠 {direction_text} {strength}회 스크롤 완료")
+            
+            # 대기 시간
+            if delay > 0:
+                time.sleep(delay / 1000.0)  # ms to seconds
+                print(f"{delay}ms 대기 완료")
+            
+        except Exception as e:
+            print(f"마우스 휠 조작 중 오류 발생: {e}")
+
+
 class TestTextCommand(CommandBase):
     """텍스트 추출 기반 Pass/Fail 판별 명령어"""
     
     @property
     def name(self): 
-        return "testtext"
+        return "TestText"
     
     @property
     def description(self): 
@@ -1564,8 +1867,38 @@ class TestTextCommand(CommandBase):
         coord_mode_layout.addWidget(self.coord_mode_combo)
         layout.addLayout(coord_mode_layout)
         
+        # 반복 확인 옵션
+        repeat_layout = QHBoxLayout()
+        repeat_layout.addWidget(QLabel('반복 확인:'))
+        self.repeat_checkbox = QCheckBox('활성화')
+        self.repeat_checkbox.toggled.connect(self.on_repeat_toggled)
+        repeat_layout.addWidget(self.repeat_checkbox)
+        
+        repeat_layout.addWidget(QLabel('최대 시도:'))
+        self.max_tries_input = QSpinBox()
+        self.max_tries_input.setRange(1, 100)
+        self.max_tries_input.setValue(10)
+        self.max_tries_input.setSuffix('회')
+        self.max_tries_input.setEnabled(False)  # 기본적으로 비활성화
+        repeat_layout.addWidget(self.max_tries_input)
+        
+        repeat_layout.addWidget(QLabel('대기 시간:'))
+        self.wait_interval_input = QSpinBox()
+        self.wait_interval_input.setRange(1, 60)
+        self.wait_interval_input.setValue(1)
+        self.wait_interval_input.setSuffix('초')
+        self.wait_interval_input.setEnabled(False)  # 기본적으로 비활성화
+        repeat_layout.addWidget(self.wait_interval_input)
+        
+        layout.addLayout(repeat_layout)
+        
         widget.setLayout(layout)
         return widget
+    
+    def on_repeat_toggled(self, checked):
+        """반복 확인 체크박스 토글 시 호출"""
+        self.max_tries_input.setEnabled(checked)
+        self.wait_interval_input.setEnabled(checked)
     
     def parse_params(self, params):
         # 전체 명령어 문자열 재구성
@@ -1574,8 +1907,8 @@ class TestTextCommand(CommandBase):
         
         try:
             import re
-            # 정규식으로 파라미터 추출: testtext "title" x y width height ocr_type "expected_text" [match_mode] [coord_mode]
-            pattern = r'testtext\s+"([^"]+)"\s+(-?\d+)\s+(-?\d+)\s+(\d+)\s+(\d+)\s+(\w+)\s+"([^"]*)"\s*(\w*)\s*(\w*)'
+            # 정규식으로 파라미터 추출: testtext "title" x y width height ocr_type "expected_text" [match_mode] [coord_mode] [repeat_mode] [max_tries] [wait_interval]
+            pattern = r'testtext\s+"([^"]+)"\s+(-?\d+)\s+(-?\d+)\s+(\d+)\s+(\d+)\s+(\w+)\s+"([^"]*)"\s*(\w*)\s*(\w*)\s*(\w*)\s*(\d*)\s*(\d*)'
             match = re.match(pattern, full_command)
             
             if not match:
@@ -1594,7 +1927,10 @@ class TestTextCommand(CommandBase):
                 'ocr_type': groups[5],
                 'expected_text': groups[6],
                 'exact_match': False,  # 기본값
-                'coord_mode': 'scaled'  # 기본값
+                'coord_mode': 'scaled',  # 기본값
+                'repeat_mode': False,  # 기본값
+                'max_tries': 10,  # 기본값
+                'wait_interval': 1  # 기본값
             }
             
             # match_mode 처리 (선택적)
@@ -1608,6 +1944,26 @@ class TestTextCommand(CommandBase):
                 coord_mode = groups[8].lower()
                 if coord_mode in ['offset', 'scaled']:
                     parsed['coord_mode'] = coord_mode
+            
+            # repeat_mode 처리 (선택적)
+            if len(groups) > 9 and groups[9]:
+                repeat_mode = groups[9].lower()
+                if repeat_mode in ['repeat', 'true', '1']:
+                    parsed['repeat_mode'] = True
+            
+            # max_tries 처리 (선택적)
+            if len(groups) > 10 and groups[10]:
+                try:
+                    parsed['max_tries'] = int(groups[10])
+                except ValueError:
+                    pass
+            
+            # wait_interval 처리 (선택적)
+            if len(groups) > 11 and groups[11]:
+                try:
+                    parsed['wait_interval'] = int(groups[11])
+                except ValueError:
+                    pass
             
             print(f"testtext 파싱 성공: {parsed}")
             return parsed
@@ -1645,6 +2001,18 @@ class TestTextCommand(CommandBase):
             self.coord_mode_combo.setCurrentIndex(1)
         else:
             self.coord_mode_combo.setCurrentIndex(0)
+        
+        # 반복 모드 설정
+        repeat_mode = params.get('repeat_mode', False)
+        self.repeat_checkbox.setChecked(repeat_mode)
+        
+        # 최대 시도 횟수
+        max_tries = params.get('max_tries', 10)
+        self.max_tries_input.setValue(max_tries)
+        
+        # 대기 시간
+        wait_interval = params.get('wait_interval', 1)
+        self.wait_interval_input.setValue(wait_interval)
     
     def get_command_string(self):
         ocr_type = 'i2skr' if self.ocr_combo.currentIndex() == 1 else 'i2s'
@@ -1652,7 +2020,17 @@ class TestTextCommand(CommandBase):
         expected_text = f'"{self.text_input.text()}"'  # 텍스트를 따옴표로 묶음
         match_mode = 'exact' if self.match_mode_combo.currentIndex() == 1 else 'contains'
         coord_mode = 'offset' if self.coord_mode_combo.currentIndex() == 1 else 'scaled'
-        return f"testtext {title} {self.x_input.value()} {self.y_input.value()} {self.width_input.value()} {self.height_input.value()} {ocr_type} {expected_text} {match_mode} {coord_mode}"
+        
+        # 반복 모드 처리
+        command_str = f"testtext {title} {self.x_input.value()} {self.y_input.value()} {self.width_input.value()} {self.height_input.value()} {ocr_type} {expected_text} {match_mode} {coord_mode}"
+        
+        if self.repeat_checkbox.isChecked():
+            repeat_mode = 'repeat'
+            max_tries = self.max_tries_input.value()
+            wait_interval = self.wait_interval_input.value()
+            command_str += f" {repeat_mode} {max_tries} {wait_interval}"
+        
+        return command_str
     
     def execute(self, params, window_coords=None, processor_state=None):
         if not params or 'expected_text' not in params or 'title' not in params:
@@ -1668,6 +2046,11 @@ class TestTextCommand(CommandBase):
         expected_text = params.get('expected_text', '')
         exact_match = params.get('exact_match', False)
         
+        # 반복 확인 설정
+        repeat_mode = params.get('repeat_mode', False)
+        max_tries = params.get('max_tries', 10)
+        wait_interval = params.get('wait_interval', 1)
+        
         # 좌표 보정
         if window_coords:
             coord_mode = params.get('coord_mode', 'scaled')
@@ -1682,82 +2065,115 @@ class TestTextCommand(CommandBase):
         match_mode_text = "완전일치" if exact_match else "일부포함"
         print(f"테스트 실행: {title} - 기대텍스트: '{expected_text}' (매칭모드: {match_mode_text})")
         
-        try:
-            # 스크린샷 촬영
-            screenshot_path = take_screenshot_with_coords(x, y, width, height)
-            if not screenshot_path:
-                print("스크린샷 촬영 실패")
-                return
+        # 반복 실행 로직
+        final_result = None
+        current_try = 0
+        max_attempts = max_tries if repeat_mode else 1
+        
+        while current_try < max_attempts:
+            current_try += 1
             
-            # OCR 실행
-            if ocr_type == 'i2s':
-                extracted_text = image_to_text(screenshot_path, lang='eng')
-            elif ocr_type == 'i2skr':
-                extracted_text = image_to_text(screenshot_path, lang='kor')
-            else:
-                print(f"지원하지 않는 OCR 타입: {ocr_type}")
-                return
+            if repeat_mode:
+                print(f"[{current_try}/{max_attempts}] 텍스트 검사 시도 중...")
             
-            if not extracted_text:
-                extracted_text = ""
-            
-            print(f"OCR 결과: '{extracted_text}'")
-            
-            # 텍스트 매칭 확인
-            match_found = False
-            if exact_match:
-                # 완전일치: OCR 결과가 기대 텍스트와 정확히 일치하는지 확인
-                match_found = extracted_text.strip() == expected_text.strip()
-                match_type = "완전일치"
-            else:
-                # 일부포함: OCR 결과에 기대 텍스트가 포함되어 있는지 확인
-                match_found = expected_text in extracted_text
-                match_type = "일부포함"
-            
-            # 결과 판별
-            result = "Pass" if match_found else "Fail"
-            
-            # 테스트 결과 저장
-            test_result = {
-                'title': title,
-                'expected_text': expected_text,
-                'extracted_text': extracted_text,
-                'result': result,
-                'screenshot_path': screenshot_path,
-                'match_mode': match_type
-            }
-            
+            try:
+                # 스크린샷 촬영
+                screenshot_path = take_screenshot_with_coords(x, y, width, height)
+                if not screenshot_path:
+                    print("스크린샷 촬영 실패")
+                    if not repeat_mode:
+                        return
+                    time.sleep(wait_interval)
+                    continue
+                
+                # OCR 실행
+                if ocr_type == 'i2s':
+                    extracted_text = image_to_text(screenshot_path, lang='eng')
+                elif ocr_type == 'i2skr':
+                    extracted_text = image_to_text(screenshot_path, lang='kor')
+                else:
+                    print(f"지원하지 않는 OCR 타입: {ocr_type}")
+                    return
+                
+                if not extracted_text:
+                    extracted_text = ""
+                
+                print(f"OCR 결과: '{extracted_text}'")
+                
+                # 텍스트 매칭 확인
+                match_found = False
+                if exact_match:
+                    # 완전일치: OCR 결과가 기대 텍스트와 정확히 일치하는지 확인
+                    match_found = extracted_text.strip() == expected_text.strip()
+                    match_type = "완전일치"
+                else:
+                    # 일부포함: OCR 결과에 기대 텍스트가 포함되어 있는지 확인
+                    match_found = expected_text in extracted_text
+                    match_type = "일부포함"
+                
+                # 결과 판별
+                result = "Pass" if match_found else "Fail"
+                
+                # 성공하면 루프 종료
+                if match_found:
+                    print(f"✓ {result}: '{expected_text}' 텍스트를 찾았습니다! ({match_type})")
+                    final_result = {
+                        'title': title,
+                        'expected_text': expected_text,
+                        'extracted_text': extracted_text,
+                        'result': result,
+                        'screenshot_path': screenshot_path,
+                        'match_mode': match_type,
+                        'attempt': current_try
+                    }
+                    break
+                else:
+                    if repeat_mode and current_try < max_attempts:
+                        print(f"✗ '{expected_text}' 텍스트를 찾지 못했습니다. {wait_interval}초 후 재시도...")
+                        time.sleep(wait_interval)
+                    else:
+                        print(f"✗ {result}: '{expected_text}' 텍스트를 찾지 못했습니다. ({match_type})")
+                        final_result = {
+                            'title': title,
+                            'expected_text': expected_text,
+                            'extracted_text': extracted_text,
+                            'result': result,
+                            'screenshot_path': screenshot_path,
+                            'match_mode': match_type,
+                            'attempt': current_try
+                        }
+                
+            except Exception as e:
+                print(f"테스트 실행 중 오류 발생: {e}")
+                if not repeat_mode or current_try >= max_attempts:
+                    final_result = {
+                        'title': title,
+                        'expected_text': expected_text,
+                        'extracted_text': f"오류: {str(e)}",
+                        'result': "Fail",
+                        'screenshot_path': screenshot_path if 'screenshot_path' in locals() else "N/A",
+                        'match_mode': match_type if 'match_type' in locals() else "N/A",
+                        'attempt': current_try
+                    }
+                    break
+                else:
+                    print(f"오류 발생, {wait_interval}초 후 재시도...")
+                    time.sleep(wait_interval)
+        
+        # 최종 결과 처리
+        if final_result:
             # processor_state에 결과 저장
             if processor_state is not None:
                 if 'test_results' not in processor_state:
                     processor_state['test_results'] = []
-                processor_state['test_results'].append(test_result)
-            
-            # 결과 출력
-            if match_found:
-                print(f"✓ {result}: '{expected_text}' 텍스트를 찾았습니다! ({match_type})")
-            else:
-                print(f"✗ {result}: '{expected_text}' 텍스트를 찾지 못했습니다. ({match_type})")
+                processor_state['test_results'].append(final_result)
             
             print(f"테스트 결과가 저장되었습니다: {title}")
             
-        except Exception as e:
-            print(f"테스트 실행 중 오류 발생: {e}")
+            if repeat_mode:
+                attempts_text = f" (총 {final_result.get('attempt', 1)}회 시도)"
+                print(f"반복 테스트 완료{attempts_text}")
             
-            # 오류 발생시에도 Fail 결과 저장
-            test_result = {
-                'title': title,
-                'expected_text': expected_text,
-                'extracted_text': f"오류: {str(e)}",
-                'result': "Fail",
-                'screenshot_path': screenshot_path if 'screenshot_path' in locals() else "N/A",
-                'match_mode': match_mode_text
-            }
-            
-            if processor_state is not None:
-                if 'test_results' not in processor_state:
-                    processor_state['test_results'] = []
-                processor_state['test_results'].append(test_result)
     
     def on_get_coordinates(self):
         """드래그로 영역 선택하여 좌표 설정 (WaitUntilCommand와 동일)"""
@@ -1942,7 +2358,7 @@ class ShowTestResultsCommand(CommandBase):
     
     @property
     def name(self): 
-        return "showresults"
+        return "ShowResults"
     
     @property
     def description(self): 
@@ -2034,7 +2450,7 @@ class ExportResultCommand(CommandBase):
     
     @property
     def name(self): 
-        return "exportresult"
+        return "ExportResult"
     
     @property
     def description(self): 
@@ -2379,6 +2795,34 @@ class ExportResultCommand(CommandBase):
             print("저장된 테스트 결과가 없습니다.")
             return
         
+        # 윈도우 실행 정보 출력 (간소화)
+        window_info = processor_state.get('window_info', {})
+        executed_apps = processor_state.get('executed_apps', [])
+        
+        if window_info or executed_apps:
+            print("\n📱 실행 환경 정보:")
+            print("-" * 30)
+            
+            # 기본 윈도우 정보
+            if window_info:
+                target_app = window_info.get('target_app', '알 수 없음')
+                print(f"• 대상 윈도우: {target_app}")
+                
+                execution_file = window_info.get('execution_file')
+                if execution_file:
+                    print(f"• 명령어 파일: {execution_file}")
+                else:
+                    print("• 명령어 파일: 없음 (직접 설정)")
+            
+            # 대상 앱 실행 경로 (runapp으로 실행된 앱이 있을 때만)
+            if executed_apps:
+                for app_info in executed_apps:
+                    if app_info.get('file_path'):
+                        print(f"• 대상 앱 실행 경로: {app_info['file_path']}")
+                        break  # 첫 번째 실행 파일만 표시
+            
+            print("")
+        
         # 파라미터 파싱
         export_excel = params.get('export_excel', True) if params else True
         include_images = params.get('include_images', False) if params else False
@@ -2442,7 +2886,7 @@ class ExportResultCommand(CommandBase):
                 # 이미지 포함 모드
                 print("📊 엑셀 파일 생성 중... (이미지 포함 모드)")
                 try:
-                    self._create_excel_report(test_results, excel_path)
+                    self._create_excel_report(test_results, excel_path, processor_state)
                     print(f"✓ 엑셀 파일 저장됨 (이미지 포함): {excel_path}")
                     excel_success = True
                 except Exception as e:
@@ -2450,7 +2894,7 @@ class ExportResultCommand(CommandBase):
                     # 이미지 포함 모드 실패 시 안전 모드로 fallback
                     try:
                         print("안전 모드로 fallback 시도...")
-                        self._create_excel_report_safe(test_results, excel_path)
+                        self._create_excel_report_safe(test_results, excel_path, processor_state)
                         print(f"✓ 엑셀 파일 저장됨 (안전 모드 fallback): {excel_path}")
                         excel_success = True
                     except Exception as e2:
@@ -2459,7 +2903,7 @@ class ExportResultCommand(CommandBase):
                 # 안전 모드 (기본값)
                 print("📊 엑셀 파일 생성 중... (안전 모드 - 이미지 제외)")
                 try:
-                    self._create_excel_report_safe(test_results, excel_path)
+                    self._create_excel_report_safe(test_results, excel_path, processor_state)
                     print(f"✓ 엑셀 파일 저장됨 (안전 모드): {excel_path}")
                     excel_success = True
                 except Exception as e:
@@ -2523,7 +2967,7 @@ class ExportResultCommand(CommandBase):
         else:
             print(f"❌ 모든 작업이 실패했습니다.")
     
-    def _create_excel_report(self, test_results, excel_path):
+    def _create_excel_report(self, test_results, excel_path, processor_state=None):
         """엑셀 리포트 생성 (스크린샷 이미지 포함)"""
         from openpyxl.drawing.image import Image as OpenpyxlImage
         import os
@@ -2630,7 +3074,7 @@ class ExportResultCommand(CommandBase):
         # 파일 저장 (UTF-8 인코딩으로 처리)
         wb.save(excel_path)
     
-    def _create_excel_report_safe(self, test_results, excel_path):
+    def _create_excel_report_safe(self, test_results, excel_path, processor_state=None):
         """엑셀 리포트 생성 (안전 모드 - 이미지 없음)"""
         wb = Workbook()
         ws = wb.active
@@ -2667,12 +3111,48 @@ class ExportResultCommand(CommandBase):
         ws_summary.cell(row=5, column=1, value="성공률")
         ws_summary.cell(row=5, column=2, value=f"{(passed_tests/total_tests*100):.1f}%")
         
+        # 실행 환경 정보 추가
+        current_row = 7
+        if processor_state:
+            window_info = processor_state.get('window_info', {})
+            executed_apps = processor_state.get('executed_apps', [])
+            
+            if window_info or executed_apps:
+                ws_summary.cell(row=current_row, column=1, value="실행 환경 정보:")
+                current_row += 1
+                
+                if window_info:
+                    target_app = window_info.get('target_app', '알 수 없음')
+                    ws_summary.cell(row=current_row, column=1, value="• 대상 윈도우:")
+                    ws_summary.cell(row=current_row, column=2, value=target_app)
+                    current_row += 1
+                    
+                    execution_file = window_info.get('execution_file')
+                    if execution_file:
+                        ws_summary.cell(row=current_row, column=1, value="• 명령어 파일:")
+                        ws_summary.cell(row=current_row, column=2, value=execution_file)
+                    else:
+                        ws_summary.cell(row=current_row, column=1, value="• 명령어 파일:")
+                        ws_summary.cell(row=current_row, column=2, value="없음 (직접 설정)")
+                    current_row += 1
+                
+                if executed_apps:
+                    for app_info in executed_apps:
+                        if app_info.get('file_path'):
+                            ws_summary.cell(row=current_row, column=1, value="• 대상 앱 실행 경로:")
+                            ws_summary.cell(row=current_row, column=2, value=app_info['file_path'])
+                            current_row += 1
+                            break  # 첫 번째 실행 파일만 표시
+                
+                current_row += 1  # 빈 행 추가
+        
         # 실패한 테스트 목록
         if failed_tests > 0:
-            ws_summary.cell(row=7, column=1, value="실패한 테스트:")
+            ws_summary.cell(row=current_row, column=1, value="실패한 테스트:")
+            current_row += 1
             failed_titles = [r['title'] for r in test_results if r['result'] == 'Fail']
-            for i, title in enumerate(failed_titles, 8):
-                ws_summary.cell(row=i, column=1, value=f"• {title}")
+            for i, title in enumerate(failed_titles):
+                ws_summary.cell(row=current_row + i, column=1, value=f"• {title}")
         
         # 열 너비 자동 조정
         for col in ws.columns:
@@ -2713,6 +3193,31 @@ class ExportResultCommand(CommandBase):
                 duration = current_time - start_time
                 f.write(f"⏰ 시작 시간: {start_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write(f"⏱️ 소요 시간: {duration}\n")
+            
+            # 윈도우 실행 정보 추가 (간소화)
+            window_info = processor_state.get('window_info', {}) if processor_state else {}
+            executed_apps = processor_state.get('executed_apps', []) if processor_state else []
+            
+            if window_info or executed_apps:
+                f.write("\n📱 실행 환경 정보:\n")
+                
+                # 기본 윈도우 정보
+                if window_info:
+                    target_app = window_info.get('target_app', '알 수 없음')
+                    f.write(f"   • 대상 윈도우: {target_app}\n")
+                    
+                    execution_file = window_info.get('execution_file')
+                    if execution_file:
+                        f.write(f"   • 명령어 파일: {execution_file}\n")
+                    else:
+                        f.write(f"   • 명령어 파일: 없음 (직접 설정)\n")
+                
+                # 대상 앱 실행 경로 (runapp으로 실행된 앱이 있을 때만)
+                if executed_apps:
+                    for app_info in executed_apps:
+                        if app_info.get('file_path'):
+                            f.write(f"   • 대상 앱 실행 경로: {app_info['file_path']}\n")
+                            break  # 첫 번째 실행 파일만 표시
             
             f.write("\n📊 테스트 결과:\n")
             f.write(f"   • 총 테스트: {total_tests}개\n")
@@ -2766,6 +3271,32 @@ class ExportResultCommand(CommandBase):
                 duration = current_time - start_time
                 message_lines.append(f"⏰ 시작 시간: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
                 message_lines.append(f"⏱️ 소요 시간: {duration}")
+
+            # 윈도우 실행 정보 추가 (간소화)
+            window_info = processor_state.get('window_info', {}) if processor_state else {}
+            executed_apps = processor_state.get('executed_apps', []) if processor_state else []
+
+            if window_info or executed_apps:
+                message_lines.append("")
+                message_lines.append("📱 실행 환경 정보:")
+
+                # 기본 윈도우 정보
+                if window_info:
+                    target_app = window_info.get('target_app', '알 수 없음')
+                    message_lines.append(f"   • 대상 윈도우: {target_app}")
+
+                    execution_file = window_info.get('execution_file')
+                    if execution_file:
+                        message_lines.append(f"   • 명령어 파일: {execution_file}")
+                    else:
+                        message_lines.append(f"   • 명령어 파일: 없음 (직접 설정)")
+
+                # 대상 앱 실행 경로 (runapp으로 실행된 앱이 있을 때만)
+                if executed_apps:
+                    for app_info in executed_apps:
+                        if app_info.get('file_path'):
+                            message_lines.append(f"   • 대상 앱 실행 경로: {app_info['file_path']}")
+                            break  # 첫 번째 실행 파일만 표시
             
             message_lines.append("")
             message_lines.append("📊 테스트 결과:")
@@ -2960,7 +3491,7 @@ class RunAppCommand(CommandBase):
     
     @property
     def name(self): 
-        return "runapp"
+        return "RunApp"
     
     @property
     def description(self): 
@@ -3474,6 +4005,21 @@ class RunAppCommand(CommandBase):
             if existing_window:
                 print(f"✓ 윈도우를 발견했습니다: {existing_window}")
                 self._auto_select_window(existing_window)
+                # 윈도우만 인식한 경우에도 정보 저장
+                if processor_state is not None:
+                    if 'executed_apps' not in processor_state:
+                        processor_state['executed_apps'] = []
+                    
+                    app_info = {
+                        'execution_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        'file_path': None,  # 윈도우 인식만이므로 파일 없음
+                        'file_name': None,
+                        'mode': 'window',
+                        'window_pattern': window_pattern,
+                        'detected_window': existing_window
+                    }
+                    processor_state['executed_apps'].append(app_info)
+                    print(f"윈도우 인식 정보 저장됨: {existing_window}")
                 return
             
             # 윈도우를 찾지 못했을 때 대기 시간동안 재시도
@@ -3528,6 +4074,21 @@ class RunAppCommand(CommandBase):
         
         # 3. 앱 실행 (공통 로직)
         self._execute_file(file_to_run)
+        
+        # 실행된 앱 정보 저장 (processor_state에 저장)
+        if processor_state is not None:
+            if 'executed_apps' not in processor_state:
+                processor_state['executed_apps'] = []
+            
+            app_info = {
+                'execution_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'file_path': file_to_run,
+                'file_name': os.path.basename(file_to_run),
+                'mode': mode,
+                'window_pattern': window_pattern
+            }
+            processor_state['executed_apps'].append(app_info)
+            print(f"앱 실행 정보 저장됨: {os.path.basename(file_to_run)}")
         
         # 4. 윈도우 대기 및 자동 선택
         if auto_window:
@@ -3972,7 +4533,7 @@ class KeepAliveCommand(CommandBase):
     
     @property
     def name(self):
-        return "keepalive"
+        return "KeepAlive"
     
     @property 
     def description(self):
@@ -4083,6 +4644,7 @@ COMMAND_REGISTRY = {
     'screenshot': ScreenshotCommand(),
     'click': ClickCommand(),
     'drag': DragCommand(),  # ← 새 명령어 추가! 이것만 하면 끝!
+    'mousewheel': MouseWheelCommand(),  # ← 마우스 휠 조작 명령어
     'i2s': I2sCommand(),
     'i2skr': I2skrCommand(),
     'waituntil': WaitUntilCommand(),
@@ -4101,8 +4663,27 @@ def get_all_commands():
 
 
 def get_command(name: str) -> CommandBase:
-    """특정 명령어 반환"""
-    return COMMAND_REGISTRY.get(name)
+    """특정 명령어 반환 (대소문자 구분 없음)"""
+    # 대소문자 구분 없이 검색
+    name_lower = name.lower()
+    
+    # 정확한 매칭 시도
+    if name_lower in COMMAND_REGISTRY:
+        return COMMAND_REGISTRY[name_lower]
+    
+    # 대소문자 구분 없는 매칭 시도
+    for key, value in COMMAND_REGISTRY.items():
+        if key.lower() == name_lower:
+            return value
+    
+    return None
+
+
+def set_main_app_for_all_commands(main_app):
+    """모든 명령어 객체에 메인 앱 참조 설정"""
+    for command in COMMAND_REGISTRY.values():
+        if hasattr(command, 'set_main_app'):
+            command.set_main_app(main_app)
 
 
 def get_command_names():

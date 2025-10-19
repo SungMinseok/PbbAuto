@@ -170,7 +170,16 @@ class CommandPopup(QDialog):
     def stop_execution(self):
         """실행 중지"""
         self.stopped = True
+        # parent의 stop_execution도 호출하여 완전한 중지
+        if self.parent and hasattr(self.parent, 'stop_execution'):
+            self.parent.stop_execution()
         self.close()
+    
+    def closeEvent(self, event):
+        """창 닫기 이벤트 - x 버튼 클릭 시에도 실행 중지"""
+        if not self.stopped:
+            self.stop_execution()
+        event.accept()
 
 
 class AddCommandDialog(QDialog):
@@ -205,7 +214,7 @@ class AddCommandDialog(QDialog):
         
         # 모든 명령어의 UI를 자동으로 생성
         for name, command in self.commands.items():
-            ui_widget = command.create_ui()  # ← 각 명령어가 자체 UI 생성!
+            ui_widget = command.create_ui_with_window_info()  # ← 윈도우 정보가 포함된 UI 생성!
             self.stack.addWidget(ui_widget)
             self.ui_widgets[name] = ui_widget
 
@@ -223,6 +232,12 @@ class AddCommandDialog(QDialog):
 
         # description show (초기 표시)
         self._update_description(self.action_box.currentText())
+        
+        # 초기 윈도우 정보 설정
+        current_action = self.action_box.currentText()
+        cmd = self.commands.get(current_action)
+        if cmd and hasattr(cmd, 'initialize_window_info'):
+            cmd.initialize_window_info()
 
         # 초기 명령어 파싱
         if initial:
@@ -233,6 +248,11 @@ class AddCommandDialog(QDialog):
         self.stack.setCurrentIndex(index)
         action = self.action_box.itemText(index)
         self._update_description(action)
+        
+        # 윈도우 정보 초기화
+        cmd = self.commands.get(action)
+        if cmd and hasattr(cmd, 'initialize_window_info'):
+            cmd.initialize_window_info()
 
     def _update_description(self, action_name):
         """description 라벨 업데이트"""
@@ -250,13 +270,20 @@ class AddCommandDialog(QDialog):
             return
             
         action = parts[0]
-        if action in self.commands:
+        # 대소문자 구분 없이 명령어 찾기
+        found_command = None
+        for cmd_name in self.commands.keys():
+            if cmd_name.lower() == action.lower():
+                found_command = cmd_name
+                break
+        
+        if found_command:
             # 액션 설정
-            index = self.command_names.index(action)
+            index = self.command_names.index(found_command)
             self.action_box.setCurrentIndex(index)
             
             # 파라미터 파싱 및 UI 설정
-            command = self.commands[action]
+            command = self.commands[found_command]
             params = command.parse_params(parts[1:])  # ← 자동 파싱!
             command.set_ui_values(params)  # ← 자동 UI 설정!
 

@@ -12,6 +12,7 @@ bundles
 test_results
 logs/ 
 schedules.json
+design/request/
 
 # 빌드 관련 파일
 build/

@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QL
                              QDateEdit, QTimeEdit, QDialogButtonBox, QSpinBox)
 from PyQt5.QtCore import QTimer, Qt, QDate, QTime, pyqtSignal
 
-# 분리된 모듈들 import (print 오버라이드 후)
+        # 분리된 모듈들 import (print 오버라이드 후)
 from constants import current_dir, bundles_dir
 from utils import (load_config, save_config, auto_detect_tesseract, take_screenshot, 
                    image_to_text, align_windows, set_pytesseract_cmd, start_keep_alive, 
@@ -29,6 +29,7 @@ from scheduler import ScheduleManager, SchedulerEngine, Schedule, ScheduleType, 
 from updater import AutoUpdater
 from update_dialogs import UpdateNotificationDialog, DownloadProgressDialog, AboutDialog
 from settings_dialog import SettingsDialog
+from command_registry import set_main_app_for_all_commands
 
 
 class PbbAutoApp(QWidget):
@@ -80,6 +81,9 @@ class PbbAutoApp(QWidget):
         
         # 마우스 위치 실시간 추적 설정
         self.init_mouse_tracker()
+        
+        # 모든 명령어 객체에 메인 앱 참조 설정
+        set_main_app_for_all_commands(self)
         
         # 스케줄러 시작 
         self.scheduler_engine.start()
@@ -401,7 +405,27 @@ class PbbAutoApp(QWidget):
         test_title = self._extract_test_title_from_bundles()
         self.command_processor.state['test_session_title'] = test_title
         
+        # 윈도우 실행 정보 저장
+        window_info = {}
+        current_file_path = self.current_file_path
+        if current_file_path:
+            window_info['execution_file'] = os.path.basename(current_file_path)
+            window_info['execution_file_path'] = current_file_path
+        else:
+            window_info['execution_file'] = None
+            window_info['execution_file_path'] = None
+        
+        selected_window_title = self.window_dropdown.currentText()
+        window_info['target_app'] = selected_window_title
+        
+        self.command_processor.state['window_info'] = window_info
+        
         print(f"테스트 세션 시작: {test_title} [{start_time.strftime('%Y-%m-%d %H:%M:%S')}]")
+        print(f"대상 앱: {selected_window_title}")
+        if current_file_path:
+            print(f"실행 파일: {os.path.basename(current_file_path)}")
+        else:
+            print("실행 파일: 없음 (직접 설정)")
         
         # 실행 전 윈도우 리스트 새로고침
         print("윈도우 리스트 새로고침 중...")
