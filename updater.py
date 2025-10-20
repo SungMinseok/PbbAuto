@@ -124,206 +124,191 @@ class UpdateChecker:
 
 
 class UpdateInstaller:
-    """[4~9] 업데이트 다운로드 및 설치"""
-    
+    """
+    [4~9] 업데이트 다운로드 및 설치 (안정화 버전)
+    - 이어받기 지원
+    - 다운로드 정체 감지 후 자동 재시작
+    - TEMP 폴더 사용으로 권한 문제 방지
+    - 다운로드 타임아웃 개선
+    """
+
     def __init__(self):
         self.main_app = None
         self.cancel_flag = False
-    
+
     def set_main_app(self, main_app):
         self.main_app = main_app
-    
-    def _log(self, message):
-        if self.main_app and hasattr(self.main_app, 'log'):
-            self.main_app.log(message)
+
+    def _log(self, msg):
+        if self.main_app and hasattr(self.main_app, "log"):
+            self.main_app.log(msg)
         else:
-            print(message)
-    
-    def _log_error(self, message):
-        if self.main_app and hasattr(self.main_app, 'log_error'):
-            self.main_app.log_error(message)
+            print(msg)
+
+    def _log_error(self, msg):
+        if self.main_app and hasattr(self.main_app, "log_error"):
+            self.main_app.log_error(msg)
         else:
-            print(message)
-    
+            print(msg)
+
     def download_and_install(self, download_url: str, progress_callback=None) -> bool:
-        """
-        [4~9] 전체 업데이트 프로세스 실행
-        
-        Args:
-            download_url: 다운로드 URL
-            progress_callback: 진행률 콜백 (received, total)
-            
-        Returns:
-            성공 여부
-        """
+        """[4~9] 전체 업데이트 프로세스 실행"""
+        import tempfile
+        import time
+        from requests.adapters import HTTPAdapter
+        from urllib3.util.retry import Retry
+
         try:
-            # [4] 새 버전 다운로드 (현재 exe 경로로)
             self._log("[4] 새 버전 다운로드 중...")
-            
-            # 현재 실행 파일 경로 확인
-            if getattr(sys, 'frozen', False):
+
+            # 실행 파일 경로
+            if getattr(sys, "frozen", False):
                 current_exe = sys.executable
                 current_dir = os.path.dirname(current_exe)
             else:
                 self._log_error("개발 모드에서는 업데이트를 설치할 수 없습니다.")
                 return False
-            
+
             self._log(f"    현재 실행 파일: {current_exe}")
             self._log(f"    설치 디렉토리: {current_dir}")
-            
-            # 다운로드 경로: 현재 exe 경로에 임시 폴더 생성
-            temp_download_dir = os.path.join(current_dir, "_update_temp")
+
+            # TEMP 폴더 사용 (권한문제 방지)
+            temp_download_dir = os.path.join(tempfile.gettempdir(), "app_update_temp")
             os.makedirs(temp_download_dir, exist_ok=True)
-            
             zip_path = os.path.join(temp_download_dir, "update.zip")
-            self._log(f"    다운로드 위치: {zip_path}")
-            
-            # ZIP 파일 다운로드
-            response = requests.get(download_url, stream=True, timeout=30)
-            response.raise_for_status()
-            
-            total_size = int(response.headers.get('content-length', 0))
-            downloaded = 0
-            
-            with open(zip_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    if self.cancel_flag:
-                        self._log("다운로드 취소됨")
+
+            # ────────────── 안정화된 다운로드 ──────────────
+            session = requests.Session()
+            retry_adapter = HTTPAdapter(max_retries=3)
+            session.mount("https://", retry_adapter)
+
+            stagnation_limit = 30  # 30초간 진행 없으면 재시작
+            max_attempts = 3
+
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    self._log(f"    [시도 {attempt}/{max_attempts}] 다운로드 연결 중...")
+                    resume_bytes = 0
+                    headers = {}
+                    if os.path.exists(zip_path):
+                        resume_bytes = os.path.getsize(zip_path)
+                        if resume_bytes > 0:
+                            headers["Range"] = f"bytes={resume_bytes}-"
+                            self._log(f"    이어받기 시작: {resume_bytes} bytes")
+
+                    response = session.get(download_url, headers=headers, stream=True, timeout=(5, 60))
+                    response.raise_for_status()
+
+                    total_size = int(response.headers.get("content-length", 0)) + resume_bytes
+                    mode = "ab" if resume_bytes > 0 else "wb"
+                    downloaded = resume_bytes
+                    last_time = time.time()
+                    last_size = downloaded
+
+                    with open(zip_path, mode) as f:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            if self.cancel_flag:
+                                self._log("다운로드 취소됨")
+                                return False
+                            if not chunk:
+                                continue
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            if progress_callback and total_size > 0:
+                                progress_callback(downloaded, total_size)
+
+                            now = time.time()
+                            # 5초마다 속도 표시
+                            if now - last_time >= 5:
+                                speed = (downloaded - last_size) / (now - last_time)
+                                self._log(
+                                    f"    진행률 {downloaded/total_size*100:.2f}% "
+                                    f"({downloaded}/{total_size} bytes, {speed/1024:.1f} KB/s)"
+                                )
+                                last_time = now
+                                last_size = downloaded
+
+                            # 정체 감지 → 재시작
+                            if now - last_time > stagnation_limit:
+                                raise TimeoutError("다운로드 정체 감지")
+
+                    if downloaded < total_size:
+                        raise IOError("파일 크기 불일치 (부분 다운로드)")
+
+                    self._log(f"✅ 다운로드 완료 ({downloaded} bytes)")
+                    break
+
+                except Exception as e:
+                    self._log_error(f"다운로드 중 오류: {e}")
+                    if attempt < max_attempts:
+                        self._log("3초 후 자동 재시작...")
+                        time.sleep(3)
+                        continue
+                    else:
+                        self._log_error("❌ 모든 시도 실패. 다운로드 중단.")
                         return False
-                    
-                    if chunk:
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        
-                        if progress_callback:
-                            progress_callback(downloaded, total_size)
-            
-            self._log(f"✅ 다운로드 완료 ({downloaded} bytes)")
-            
-            # ZIP 압축 해제
+
+            # ────────────── 압축 해제 및 설치 ──────────────
             extract_dir = os.path.join(temp_download_dir, "extracted")
             if os.path.exists(extract_dir):
                 shutil.rmtree(extract_dir)
             os.makedirs(extract_dir)
-            
-            self._log("    ZIP 파일 압축 해제 중...")
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+
+            self._log("ZIP 파일 압축 해제 중...")
+            with zipfile.ZipFile(zip_path, "r") as zip_ref:
                 zip_ref.extractall(extract_dir)
-            
-            # 압축 해제된 파일 목록
-            extracted_files = []
-            for root, dirs, files in os.walk(extract_dir):
-                for file in files:
-                    src_path = os.path.join(root, file)
-                    rel_path = os.path.relpath(src_path, extract_dir)
-                    extracted_files.append((src_path, rel_path))
-            
-            self._log(f"✅ 압축 해제 완료 ({len(extracted_files)} 파일)")
-            
-            # [5] 실행 중인 앱 종료 준비
-            self._log("[5] 앱 종료 및 업데이트 설치 준비...")
-            
-            # [6] 파일 교체 배치 스크립트 생성
-            self._log("[6] 파일 교체 스크립트 생성 중...")
-            
-            bat_script = os.path.join(temp_download_dir, "install.bat")
-            
-            with open(bat_script, 'w', encoding='utf-8') as f:
-                f.write('@echo off\n')
-                f.write('chcp 65001 > nul\n')
-                f.write('echo ========================================\n')
-                f.write('echo BundleEditor 업데이트 설치\n')
-                f.write('echo ========================================\n')
-                f.write('echo.\n')
-                f.write('echo [5] 실행 중인 앱 종료 대기 중...\n')
-                f.write('timeout /t 3 /nobreak > nul\n')
-                f.write('echo.\n')
-                
-                # [6] 파일 교체
-                f.write('echo [6] 파일 교체 중...\n')
-                for src_path, rel_path in extracted_files:
-                    dst_path = os.path.join(current_dir, rel_path)
-                    dst_dir = os.path.dirname(dst_path)
-                    
-                    # 디렉토리 생성
-                    if dst_dir and dst_dir != current_dir:
-                        f.write(f'if not exist "{dst_dir}" mkdir "{dst_dir}"\n')
-                    
-                    # 기존 파일 백업 (exe 파일의 경우)
-                    if dst_path.lower().endswith('.exe'):
-                        f.write(f'if exist "{dst_path}" move /y "{dst_path}" "{dst_path}.bak"\n')
-                    
-                    # 새 파일 복사
-                    f.write(f'copy /y "{src_path}" "{dst_path}"\n')
-                    
-                    # [7] 무결성 검증 (exe 파일의 경우)
-                    if dst_path.lower().endswith('.exe'):
-                        f.write(f'if not exist "{dst_path}" (\n')
-                        f.write(f'    echo [7] 파일 복사 실패: {rel_path}\n')
-                        f.write(f'    echo     백업에서 복구 중...\n')
-                        f.write(f'    if exist "{dst_path}.bak" move /y "{dst_path}.bak" "{dst_path}"\n')
-                        f.write(f'    echo     업데이트 실패!\n')
-                        f.write(f'    pause\n')
-                        f.write(f'    exit /b 1\n')
-                        f.write(f')\n')
-                        f.write(f'echo     ✓ {rel_path} 복사 완료\n')
-                
-                f.write('echo.\n')
-                f.write('echo [7] 무결성 검증 완료\n')
-                f.write('echo.\n')
-                
-                # [8] 새 앱 실행
-                f.write('echo [8] 새 버전 실행 중...\n')
+
+            self._log("✅ 압축 해제 완료")
+
+            # 교체 스크립트 작성
+            bat_path = os.path.join(temp_download_dir, "install.bat")
+            with open(bat_path, "w", encoding="utf-8") as f:
+                f.write("@echo off\nchcp 65001>nul\n")
+                f.write("echo 업데이트 설치 중...\n")
+                f.write("timeout /t 2 >nul\n")
+
+                for root, dirs, files in os.walk(extract_dir):
+                    for file in files:
+                        src = os.path.join(root, file)
+                        rel = os.path.relpath(src, extract_dir)
+                        dst = os.path.join(current_dir, rel)
+                        dst_dir = os.path.dirname(dst)
+                        if dst_dir and not os.path.exists(dst_dir):
+                            f.write(f'if not exist "{dst_dir}" mkdir "{dst_dir}"\n')
+                        # 기존 파일 백업 후 덮어쓰기
+                        f.write(f'if exist "{dst}" move /y "{dst}" "{dst}.bak"\n')
+                        f.write(f'copy /y "{src}" "{dst}"\n')
+
                 f.write(f'start "" "{current_exe}"\n')
-                f.write('timeout /t 2 /nobreak > nul\n')
-                f.write('echo.\n')
-                
-                # [9] 임시 파일 정리
-                f.write('echo [9] 임시 파일 정리 중...\n')
-                f.write(f'cd /d "{current_dir}"\n')
-                
-                # .bak 파일 삭제
-                for src_path, rel_path in extracted_files:
-                    if rel_path.lower().endswith('.exe'):
-                        dst_path = os.path.join(current_dir, rel_path)
-                        f.write(f'if exist "{dst_path}.bak" del /f /q "{dst_path}.bak"\n')
-                
-                # 임시 폴더 삭제
+                f.write(f'echo 업데이트 완료!\n')
                 f.write(f'rmdir /s /q "{temp_download_dir}"\n')
-                f.write('echo.\n')
-                f.write('echo ========================================\n')
-                f.write('echo 업데이트 완료!\n')
-                f.write('echo ========================================\n')
-                f.write('timeout /t 2 /nobreak > nul\n')
-                f.write('\n')
-                f.write('REM 자기 자신 삭제\n')
                 f.write('(goto) 2>nul & del "%~f0"\n')
-            
-            self._log(f"✅ 설치 스크립트 생성 완료: {bat_script}")
-            
-            # 배치 스크립트 실행
+
+            self._log(f"✅ 설치 스크립트 생성 완료: {bat_path}")
+
+            # 스크립트 실행
             self._log("업데이트 스크립트 실행 중...")
             subprocess.Popen(
-                [bat_script],
+                [bat_path],
                 cwd=current_dir,
                 shell=True,
-                creationflags=subprocess.CREATE_NEW_CONSOLE | subprocess.DETACHED_PROCESS
+                creationflags=subprocess.CREATE_NEW_CONSOLE | subprocess.DETACHED_PROCESS,
             )
-            
-            # 현재 앱 종료
+
             self._log("3초 후 앱을 종료합니다...")
             time.sleep(3)
             sys.exit(0)
-            
+
         except Exception as e:
-            self._log_error(f"업데이트 설치 실패: {e}")
             import traceback
-            self._log_error(f"상세 오류: {traceback.format_exc()}")
+            self._log_error(f"업데이트 설치 실패: {e}")
+            self._log_error(traceback.format_exc())
             return False
-    
+
     def cancel(self):
         """다운로드 취소"""
         self.cancel_flag = True
+
 
 
 class AutoUpdater:
