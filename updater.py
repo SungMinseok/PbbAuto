@@ -373,14 +373,38 @@ class UpdateInstaller:
             
             # 별도 프로세스로 업데이트 스크립트 실행
             if sys.platform == 'win32':
-                # Windows: cmd로 실행
+                # Windows: 더 안전한 방식으로 배치 파일 실행
                 _log("Windows 업데이트 스크립트 실행...")
-                process = subprocess.Popen(
-                    ['cmd', '/c', f'"{updater_script}"'],
-                    creationflags=subprocess.CREATE_NEW_CONSOLE | subprocess.DETACHED_PROCESS,
-                    cwd=os.path.dirname(current_exe)
-                )
-                _log(f"업데이트 프로세스 시작됨: PID {process.pid}")
+                _log(f"스크립트 경로: {updater_script}")
+                
+                try:
+                    # 방법 1: shell=True 사용 (경로 문제 해결)
+                    process = subprocess.Popen(
+                        updater_script,
+                        shell=True,
+                        creationflags=subprocess.CREATE_NEW_CONSOLE | subprocess.DETACHED_PROCESS,
+                        cwd=os.path.dirname(current_exe)
+                    )
+                    _log(f"업데이트 프로세스 시작됨 (shell=True): PID {process.pid}")
+                except Exception as e:
+                    _log_error(f"shell=True 방식 실패, 대안 시도: {e}")
+                    try:
+                        # 방법 2: start 명령어 사용
+                        process = subprocess.Popen(
+                            ['cmd', '/c', 'start', '/min', updater_script],
+                            creationflags=subprocess.CREATE_NEW_CONSOLE | subprocess.DETACHED_PROCESS,
+                            cwd=os.path.dirname(current_exe)
+                        )
+                        _log(f"업데이트 프로세스 시작됨 (start 명령어): PID {process.pid}")
+                    except Exception as e2:
+                        _log_error(f"start 명령어도 실패: {e2}")
+                        # 방법 3: 직접 실행 (마지막 시도)
+                        process = subprocess.Popen(
+                            [updater_script],
+                            creationflags=subprocess.CREATE_NEW_CONSOLE | subprocess.DETACHED_PROCESS,
+                            cwd=os.path.dirname(current_exe)
+                        )
+                        _log(f"업데이트 프로세스 시작됨 (직접 실행): PID {process.pid}")
             else:
                 # Linux/Mac: bash로 실행
                 _log("Unix 업데이트 스크립트 실행...")
@@ -422,27 +446,74 @@ class UpdateInstaller:
                 # Windows 배치 스크립트
                 script_path = os.path.join(temp_dir, 'updater.bat')
                 
+                # 경로를 더 안전하게 처리 - 짧은 경로명 사용
+                def get_safe_path(path):
+                    """안전한 배치 스크립트용 경로 반환"""
+                    try:
+                        # Windows의 짧은 경로명 사용 (공백/특수문자 문제 해결)
+                        import ctypes
+                        from ctypes import wintypes
+                        
+                        GetShortPathNameW = ctypes.windll.kernel32.GetShortPathNameW
+                        GetShortPathNameW.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD]
+                        GetShortPathNameW.restype = wintypes.DWORD
+                        
+                        buffer = ctypes.create_unicode_buffer(260)
+                        if GetShortPathNameW(path, buffer, 260):
+                            return buffer.value
+                        else:
+                            # 짧은 경로 변환 실패 시 원래 경로 사용 (추가 이스케이프 처리)
+                            return path.replace('&', '^&').replace('(', '^(').replace(')', '^)')
+                    except Exception:
+                        # 변환 실패 시 원래 경로 사용 (추가 이스케이프 처리)
+                        return path.replace('&', '^&').replace('(', '^(').replace(')', '^)')
+                
+                safe_current_exe = get_safe_path(current_exe)
+                safe_update_file = get_safe_path(update_file)
+                safe_backup = get_safe_path(current_exe + '.bak')
+                
+                # 디버깅 정보 출력
+                if logger and hasattr(logger, 'log'):
+                    logger.log(f"원래 실행 파일 경로: {current_exe}")
+                    logger.log(f"안전한 실행 파일 경로: {safe_current_exe}")
+                    logger.log(f"원래 업데이트 파일 경로: {update_file}")
+                    logger.log(f"안전한 업데이트 파일 경로: {safe_update_file}")
+                else:
+                    print(f"원래 실행 파일 경로: {current_exe}")
+                    print(f"안전한 실행 파일 경로: {safe_current_exe}")
+                    print(f"원래 업데이트 파일 경로: {update_file}")
+                    print(f"안전한 업데이트 파일 경로: {safe_update_file}")
+                
                 script_content = f"""@echo off
+chcp 65001 > nul
 echo 업데이트 설치 중...
 timeout /t 2 /nobreak > nul
 
 REM 현재 실행 파일 백업
-if exist "{current_exe}.bak" del "{current_exe}.bak"
-move "{current_exe}" "{current_exe}.bak"
+if exist "{safe_backup}" del /f /q "{safe_backup}"
+move "{safe_current_exe}" "{safe_backup}"
 
 REM 새 버전 복사
-copy "{update_file}" "{current_exe}"
+copy /y "{safe_update_file}" "{safe_current_exe}"
+
+REM 복사 성공 확인
+if not exist "{safe_current_exe}" (
+    echo 업데이트 복사 실패! 백업에서 복원합니다.
+    move "{safe_backup}" "{safe_current_exe}"
+    pause
+    exit /b 1
+)
 
 REM 임시 파일 삭제
-del "{update_file}"
+if exist "{safe_update_file}" del /f /q "{safe_update_file}"
 
 echo 업데이트 완료!
 """
                 
                 if restart:
-                    script_content += f'\nstart "" "{current_exe}"\n'
+                    script_content += f'\necho 애플리케이션 재시작 중...\nstart "" "{safe_current_exe}"\n'
                 
-                script_content += '\ndel "%~f0"\n'  # 스크립트 자체 삭제
+                script_content += '\necho 업데이트 스크립트 종료\ndel "%~f0"\n'  # 스크립트 자체 삭제
                 
             else:
                 # Linux/Mac 셸 스크립트
