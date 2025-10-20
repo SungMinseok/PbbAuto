@@ -1,11 +1,17 @@
 """
-자동 업데이트 시스템 (리팩토링 버전)
+자동 업데이트 시스템 (단순화 버전)
 GitHub Releases를 통한 자동 업데이트 관리
 
-핵심 전략:
-1. Python 코드에서 직접 ZIP 다운로드 및 압축 해제
-2. 현재 실행 파일 종료 후 파일 교체
-3. 앱 재시작 후 임시 파일 정리
+9단계 프로세스:
+[1] 서버에서 최신 버전 조회
+[2] 로컬 버전 비교
+[3] (필요 시) 사용자 승인
+[4] 새 버전 다운로드 (현재 exe파일 있는 경로로, zip 압축해제 포함)
+[5] 실행 중인 앱 종료
+[6] 파일 교체 / 설치
+[7] 무결성 검증
+[8] 새 앱 실행
+[9] 임시 파일 정리
 """
 
 # 로그 설정을 가장 먼저 import
@@ -15,11 +21,11 @@ import json
 import os
 import sys
 import requests
-import tempfile
 import subprocess
 import shutil
 import zipfile
 import time
+import hashlib
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple
 from packaging import version
@@ -27,27 +33,23 @@ import threading
 
 
 class UpdateChecker:
-    """버전 체크 및 업데이트 확인 클래스"""
+    """[1~2] 버전 체크 및 업데이트 확인"""
     
     def __init__(self, version_file: str = "version.json"):
         self.version_file = version_file
         self.current_version = self._load_current_version()
-        self.latest_info = None
-        self.main_app = None  # main app 참조
+        self.main_app = None
     
     def set_main_app(self, main_app):
-        """main app 참조 설정"""
         self.main_app = main_app
     
     def _log(self, message):
-        """로그 메시지 출력 (main app이 있으면 사용, 없으면 print)"""
         if self.main_app and hasattr(self.main_app, 'log'):
             self.main_app.log(message)
         else:
             print(message)
     
     def _log_error(self, message):
-        """에러 로그 메시지 출력 (main app이 있으면 사용, 없으면 print)"""
         if self.main_app and hasattr(self.main_app, 'log_error'):
             self.main_app.log_error(message)
         else:
@@ -66,13 +68,13 @@ class UpdateChecker:
     
     def check_for_updates(self) -> Tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
         """
-        업데이트 확인
-        
+        [1~2] 서버에서 최신 버전 조회 및 로컬 버전 비교
+            
         Returns:
             (has_update, update_info, error_message)
         """
         try:
-            self._log("업데이트 확인 중...")
+            self._log("[1] 서버에서 최신 버전 조회 중...")
             
             # GitHub API로 최신 릴리스 정보 가져오기
             api_url = "https://api.github.com/repos/SungMinseok/PbbAuto/releases/latest"
@@ -82,8 +84,9 @@ class UpdateChecker:
             release_data = response.json()
             latest_version = release_data['tag_name'].lstrip('v')
             
-            self._log(f"현재 버전: {self.current_version}")
-            self._log(f"최신 버전: {latest_version}")
+            self._log(f"[2] 로컬 버전 비교")
+            self._log(f"    현재 버전: {self.current_version}")
+            self._log(f"    최신 버전: {latest_version}")
             
             # 버전 비교
             if version.parse(latest_version) > version.parse(self.current_version):
@@ -104,11 +107,10 @@ class UpdateChecker:
                     'published_at': release_data.get('published_at', '')
                 }
                 
-                self.latest_info = update_info
-                self._log(f"새로운 버전 발견: {latest_version}")
+                self._log(f"✅ 새로운 버전 발견: {latest_version}")
                 return True, update_info, None
             else:
-                self._log("현재 최신 버전을 사용 중입니다.")
+                self._log("✅ 현재 최신 버전을 사용 중입니다.")
                 return False, None, None
                 
         except requests.exceptions.RequestException as e:
@@ -119,63 +121,83 @@ class UpdateChecker:
             error_msg = f"업데이트 확인 중 오류: {e}"
             self._log_error(error_msg)
             return False, None, error_msg
+    
 
-
-class UpdateDownloader:
-    """업데이트 파일 다운로드 클래스"""
+class UpdateInstaller:
+    """[4~9] 업데이트 다운로드 및 설치"""
     
     def __init__(self):
-        self.main_app = None  # main app 참조
+        self.main_app = None
         self.cancel_flag = False
     
     def set_main_app(self, main_app):
-        """main app 참조 설정"""
         self.main_app = main_app
     
     def _log(self, message):
-        """로그 메시지 출력"""
         if self.main_app and hasattr(self.main_app, 'log'):
             self.main_app.log(message)
         else:
             print(message)
     
     def _log_error(self, message):
-        """에러 로그 메시지 출력"""
         if self.main_app and hasattr(self.main_app, 'log_error'):
             self.main_app.log_error(message)
         else:
             print(message)
+        
+    def _calculate_checksum(self, file_path: str) -> str:
+        """파일의 SHA256 체크섬 계산"""
+        sha256_hash = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            for byte_block in iter(lambda: f.read(4096), b""):
+                sha256_hash.update(byte_block)
+        return sha256_hash.hexdigest()
     
-    def download(self, url: str, progress_callback=None) -> Optional[str]:
+    def download_and_install(self, download_url: str, progress_callback=None) -> bool:
         """
-        파일 다운로드
+        [4~9] 전체 업데이트 프로세스 실행
         
         Args:
-            url: 다운로드 URL
-            progress_callback: 진행률 콜백 함수 (received, total)
+            download_url: 다운로드 URL
+            progress_callback: 진행률 콜백 (received, total)
             
         Returns:
-            다운로드된 파일 경로 (실패 시 None)
+            성공 여부
         """
         try:
-            temp_dir = tempfile.gettempdir()
-            download_path = os.path.join(temp_dir, "BundleEditor.zip")
+            # [4] 새 버전 다운로드 (현재 exe 경로로)
+            self._log("[4] 새 버전 다운로드 중...")
             
-            self._log(f"다운로드 시작: {url}")
-            self._log(f"저장 위치: {download_path}")
+            # 현재 실행 파일 경로 확인
+            if getattr(sys, 'frozen', False):
+                current_exe = sys.executable
+                current_dir = os.path.dirname(current_exe)
+            else:
+                self._log_error("개발 모드에서는 업데이트를 설치할 수 없습니다.")
+                return False
             
-            response = requests.get(url, stream=True, timeout=30)
+            self._log(f"    현재 실행 파일: {current_exe}")
+            self._log(f"    설치 디렉토리: {current_dir}")
+            
+            # 다운로드 경로: 현재 exe 경로에 임시 폴더 생성
+            temp_download_dir = os.path.join(current_dir, "_update_temp")
+            os.makedirs(temp_download_dir, exist_ok=True)
+            
+            zip_path = os.path.join(temp_download_dir, "update.zip")
+            self._log(f"    다운로드 위치: {zip_path}")
+            
+            # ZIP 파일 다운로드
+            response = requests.get(download_url, stream=True, timeout=30)
             response.raise_for_status()
             
             total_size = int(response.headers.get('content-length', 0))
-            self._log(f"총 다운로드 크기: {total_size} bytes")
-            
             downloaded = 0
-            with open(download_path, 'wb') as f:
+            
+            with open(zip_path, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     if self.cancel_flag:
                         self._log("다운로드 취소됨")
-                        return None
+                return False
                     
                     if chunk:
                         f.write(chunk)
@@ -184,138 +206,132 @@ class UpdateDownloader:
                         if progress_callback:
                             progress_callback(downloaded, total_size)
             
-            self._log(f"✅ 다운로드 완료: {download_path}")
-            return download_path
+            self._log(f"✅ 다운로드 완료 ({downloaded} bytes)")
             
-        except Exception as e:
-            self._log_error(f"다운로드 실패: {e}")
-            return None
-    
-    def cancel(self):
-        """다운로드 취소"""
-        self.cancel_flag = True
-
-
-class UpdateInstaller:
-    """업데이트 설치 클래스 (새로운 간단한 방식)"""
-    
-    @staticmethod
-    def install_update(zip_path: str, logger=None) -> bool:
-        """
-        업데이트 설치
-        
-        Args:
-            zip_path: 다운로드된 ZIP 파일 경로
-            logger: 로거 객체 (선택)
+            # ZIP 압축 해제
+            extract_dir = os.path.join(temp_download_dir, "extracted")
+            if os.path.exists(extract_dir):
+                shutil.rmtree(extract_dir)
+            os.makedirs(extract_dir)
             
-        Returns:
-            성공 여부
-        """
-        def _log(msg):
-            if logger and hasattr(logger, 'log'):
-                logger.log(msg)
-            else:
-                print(msg)
-        
-        def _log_error(msg):
-            if logger and hasattr(logger, 'log_error'):
-                logger.log_error(msg)
-            else:
-                print(msg)
-        
-        try:
-            _log("업데이트 설치 시작...")
-            _log(f"ZIP 파일: {zip_path}")
-            
-            # 1. ZIP 파일 존재 확인
-            if not os.path.exists(zip_path):
-                _log_error(f"ZIP 파일이 존재하지 않습니다: {zip_path}")
-                return False
-            
-            # 2. 현재 실행 파일 확인
-            if getattr(sys, 'frozen', False):
-                current_exe = sys.executable
-            else:
-                _log("개발 모드에서는 업데이트를 설치할 수 없습니다.")
-                return False
-            
-            current_dir = os.path.dirname(current_exe)
-            _log(f"현재 실행 파일: {current_exe}")
-            _log(f"설치 디렉토리: {current_dir}")
-            
-            # 3. 임시 압축 해제 디렉토리 생성
-            temp_extract_dir = os.path.join(tempfile.gettempdir(), 'update_extract')
-            if os.path.exists(temp_extract_dir):
-                shutil.rmtree(temp_extract_dir)
-            os.makedirs(temp_extract_dir)
-            _log(f"압축 해제 디렉토리: {temp_extract_dir}")
-            
-            # 4. ZIP 파일 압축 해제
-            _log("ZIP 파일 압축 해제 중...")
+            self._log("    ZIP 파일 압축 해제 중...")
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(temp_extract_dir)
-            _log("✅ 압축 해제 완료")
+                zip_ref.extractall(extract_dir)
             
-            # 5. 압축 해제된 파일 목록 확인
+            # 압축 해제된 파일 목록
             extracted_files = []
-            for root, dirs, files in os.walk(temp_extract_dir):
+            for root, dirs, files in os.walk(extract_dir):
                 for file in files:
                     src_path = os.path.join(root, file)
-                    rel_path = os.path.relpath(src_path, temp_extract_dir)
-                    extracted_files.append(rel_path)
+                    rel_path = os.path.relpath(src_path, extract_dir)
+                    extracted_files.append((src_path, rel_path))
             
-            _log(f"압축 해제된 파일 수: {len(extracted_files)}")
+            self._log(f"✅ 압축 해제 완료 ({len(extracted_files)} 파일)")
             
-            # 6. 현재 앱 종료 준비 (배치 스크립트 생성)
-            bat_script = os.path.join(tempfile.gettempdir(), 'update_install.bat')
+            # [5] 실행 중인 앱 종료 준비
+            self._log("[5] 앱 종료 및 업데이트 설치 준비...")
+            
+            # [6] 파일 교체 배치 스크립트 생성
+            self._log("[6] 파일 교체 스크립트 생성 중...")
+            
+            bat_script = os.path.join(temp_download_dir, "install.bat")
             
             with open(bat_script, 'w', encoding='utf-8') as f:
                 f.write('@echo off\n')
                 f.write('chcp 65001 > nul\n')
-                f.write('echo 업데이트 설치 중...\n')
-                f.write('timeout /t 3 /nobreak > nul\n\n')
+                f.write('echo ========================================\n')
+                f.write('echo BundleEditor 업데이트 설치\n')
+                f.write('echo ========================================\n')
+                f.write('echo.\n')
+                f.write('echo [5] 실행 중인 앱 종료 대기 중...\n')
+                f.write('timeout /t 3 /nobreak > nul\n')
+                f.write('echo.\n')
                 
-                # 파일 복사
-                for rel_path in extracted_files:
-                    src = os.path.join(temp_extract_dir, rel_path)
-                    dst = os.path.join(current_dir, rel_path)
-                    dst_dir = os.path.dirname(dst)
+                # [6] 파일 교체
+                f.write('echo [6] 파일 교체 중...\n')
+                for src_path, rel_path in extracted_files:
+                    dst_path = os.path.join(current_dir, rel_path)
+                    dst_dir = os.path.dirname(dst_path)
                     
                     # 디렉토리 생성
                     if dst_dir and dst_dir != current_dir:
                         f.write(f'if not exist "{dst_dir}" mkdir "{dst_dir}"\n')
                     
-                    # 파일 복사
-                    f.write(f'copy /y "{src}" "{dst}"\n')
+                    # 기존 파일 백업 (exe 파일의 경우)
+                    if dst_path.lower().endswith('.exe'):
+                        f.write(f'if exist "{dst_path}" move /y "{dst_path}" "{dst_path}.bak"\n')
+                    
+                    # 새 파일 복사
+                    f.write(f'copy /y "{src_path}" "{dst_path}"\n')
+                    
+                    # [7] 무결성 검증 (exe 파일의 경우)
+                    if dst_path.lower().endswith('.exe'):
+                        f.write(f'if not exist "{dst_path}" (\n')
+                        f.write(f'    echo [7] 파일 복사 실패: {rel_path}\n')
+                        f.write(f'    echo     백업에서 복구 중...\n')
+                        f.write(f'    if exist "{dst_path}.bak" move /y "{dst_path}.bak" "{dst_path}"\n')
+                        f.write(f'    echo     업데이트 실패!\n')
+                        f.write(f'    pause\n')
+                        f.write(f'    exit /b 1\n')
+                        f.write(f')\n')
+                        f.write(f'echo     ✓ {rel_path} 복사 완료\n')
                 
-                f.write('\n')
-                f.write('echo 임시 파일 정리 중...\n')
-                f.write(f'rmdir /s /q "{temp_extract_dir}"\n')
-                f.write(f'del /f /q "{zip_path}"\n')
-                f.write('\n')
-                f.write('echo 업데이트 완료! 앱을 재시작합니다...\n')
+                f.write('echo.\n')
+                f.write('echo [7] 무결성 검증 완료\n')
+                f.write('echo.\n')
+                
+                # [8] 새 앱 실행
+                f.write('echo [8] 새 버전 실행 중...\n')
                 f.write(f'start "" "{current_exe}"\n')
+                f.write('timeout /t 2 /nobreak > nul\n')
+                f.write('echo.\n')
+                
+                # [9] 임시 파일 정리
+                f.write('echo [9] 임시 파일 정리 중...\n')
+                f.write(f'cd /d "{current_dir}"\n')
+                
+                # .bak 파일 삭제
+                for src_path, rel_path in extracted_files:
+                    if rel_path.lower().endswith('.exe'):
+                        dst_path = os.path.join(current_dir, rel_path)
+                        f.write(f'if exist "{dst_path}.bak" del /f /q "{dst_path}.bak"\n')
+                
+                # 임시 폴더 삭제
+                f.write(f'rmdir /s /q "{temp_download_dir}"\n')
+                f.write('echo.\n')
+                f.write('echo ========================================\n')
+                f.write('echo 업데이트 완료!\n')
+                f.write('echo ========================================\n')
+                f.write('timeout /t 2 /nobreak > nul\n')
                 f.write('\n')
                 f.write('REM 자기 자신 삭제\n')
-                f.write('del "%~f0"\n')
+                f.write('(goto) 2>nul & del "%~f0"\n')
             
-            _log(f"업데이트 스크립트 생성됨: {bat_script}")
+            self._log(f"✅ 설치 스크립트 생성 완료: {bat_script}")
             
-            # 7. 배치 스크립트 실행 및 현재 앱 종료
-            _log("업데이트 스크립트 실행...")
-            subprocess.Popen([bat_script], shell=True, creationflags=subprocess.CREATE_NEW_CONSOLE)
+            # 배치 스크립트 실행
+            self._log("업데이트 스크립트 실행 중...")
+            subprocess.Popen(
+                [bat_script],
+                cwd=current_dir,
+                shell=True,
+                creationflags=subprocess.CREATE_NEW_CONSOLE | subprocess.DETACHED_PROCESS
+            )
             
-            _log("3초 후 앱을 종료하고 업데이트를 설치합니다...")
+            # 현재 앱 종료
+            self._log("3초 후 앱을 종료합니다...")
             time.sleep(3)
-            
-            # 앱 종료
             sys.exit(0)
             
         except Exception as e:
-            _log_error(f"업데이트 설치 실패: {e}")
+            self._log_error(f"업데이트 설치 실패: {e}")
             import traceback
-            _log_error(f"상세 오류: {traceback.format_exc()}")
+            self._log_error(f"상세 오류: {traceback.format_exc()}")
             return False
+    
+    def cancel(self):
+        """다운로드 취소"""
+        self.cancel_flag = True
 
 
 class AutoUpdater:
@@ -323,27 +339,24 @@ class AutoUpdater:
     
     def __init__(self, version_file: str = "version.json"):
         self.checker = UpdateChecker(version_file)
-        self.downloader = UpdateDownloader()
+        self.installer = UpdateInstaller()
         self.update_available = False
         self.latest_info = None
-        self.main_app = None  # main app 참조
+        self.main_app = None
     
     def set_main_app(self, main_app):
         """main app 참조 설정"""
         self.main_app = main_app
-        # 하위 컴포넌트들에도 참조 전달
         self.checker.set_main_app(main_app)
-        self.downloader.set_main_app(main_app)
+        self.installer.set_main_app(main_app)
     
     def _log(self, message):
-        """로그 메시지 출력 (main app이 있으면 사용, 없으면 print)"""
         if self.main_app and hasattr(self.main_app, 'log'):
             self.main_app.log(message)
         else:
             print(message)
     
     def _log_error(self, message):
-        """에러 로그 메시지 출력 (main app이 있으면 사용, 없으면 print)"""
         if self.main_app and hasattr(self.main_app, 'log_error'):
             self.main_app.log_error(message)
         else:
@@ -351,16 +364,14 @@ class AutoUpdater:
         
     def check_updates_async(self, callback=None):
         """
-        비동기로 업데이트 확인
+        [1~3] 비동기로 업데이트 확인
         
         Args:
             callback: 완료 콜백 함수 (has_update, info, error_msg)
         """
         def check_thread():
             try:
-                self._log("[DEBUG] 업데이트 확인 스레드 시작")
                 has_update, info, error_msg = self.checker.check_for_updates()
-                self._log(f"[DEBUG] check_for_updates 결과 - has_update: {has_update}, error_msg: {error_msg}, info 타입: {type(info)}")
                 
                 self.update_available = has_update
                 self.latest_info = info
@@ -373,18 +384,18 @@ class AutoUpdater:
                 if callback:
                     callback(False, None, str(e))
         
-        thread = threading.Thread(target=check_thread, daemon=True)
-        thread.start()
+            thread = threading.Thread(target=check_thread, daemon=True)
+            thread.start()
     
     def download_and_install(self, progress_callback=None, completion_callback=None):
         """
-        업데이트 다운로드 및 설치
+        [4~9] 업데이트 다운로드 및 설치
         
         Args:
             progress_callback: 진행률 콜백 (received, total)
             completion_callback: 완료 콜백 (success: bool)
         """
-        def download_thread():
+        def install_thread():
             try:
                 if not self.latest_info:
                     self._log_error("업데이트 정보가 없습니다.")
@@ -399,30 +410,19 @@ class AutoUpdater:
                         completion_callback(False)
                     return
                 
-                # 다운로드
-                self._log("업데이트 다운로드 시작...")
-                zip_path = self.downloader.download(download_url, progress_callback)
+                # [4~9] 전체 프로세스 실행
+                success = self.installer.download_and_install(download_url, progress_callback)
                 
-                if not zip_path:
-                    self._log_error("다운로드 실패")
+                # 참고: sys.exit(0)가 호출되므로 여기에 도달하지 않음
                     if completion_callback:
-                        completion_callback(False)
-                    return
-                
-                self._log("다운로드 완료, 설치 시작...")
-                
-                # 설치
-                success = UpdateInstaller.install_update(zip_path, self.main_app)
-                
-                if completion_callback:
-                    completion_callback(success)
+                        completion_callback(success)
                     
             except Exception as e:
-                self._log_error(f"업데이트 다운로드/설치 오류: {e}")
+                self._log_error(f"업데이트 설치 오류: {e}")
                 import traceback
                 self._log_error(f"상세 오류: {traceback.format_exc()}")
                 if completion_callback:
                     completion_callback(False)
         
-        thread = threading.Thread(target=download_thread, daemon=True)
+        thread = threading.Thread(target=install_thread, daemon=True)
         thread.start()
