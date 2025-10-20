@@ -1,15 +1,21 @@
 @echo off
 chcp 65001 >nul
 REM ==========================================
-REM PbbAuto Fast Deploy Script (No ZIP creation)
+REM PbbAuto Local Build Deploy Script
 REM ==========================================
 echo.
 echo ========================================
-echo PbbAuto Fast Deploy Script
+echo PbbAuto Local Build Deploy Script
 echo ========================================
 echo.
 
-echo [1/7] Update version.json...
+echo [0/6] Activate virtual environment...
+echo.
+
+set VENV1=C:\pyenvs\venv\Scripts\activate.bat
+call "%VENV1%"
+echo.
+echo [1/6] Update version.json...
 echo.
 set /p CHANGELOG_MSG="Input changelog (Enter=Auto Deploy): "
 if "%CHANGELOG_MSG%"=="" (
@@ -27,36 +33,41 @@ echo Version generated: %VERSION%
 echo.
 
 echo.
-echo [2/7] Check local changes...
+echo [2/6] Local Build (EXE)...
+python build.py
+if errorlevel 1 (
+    echo ❌ Build failed!
+    pause
+    exit /b 1
+)
+
+echo.
+echo [3/6] Check local changes...
 git status
 
 echo.
-echo [3/7] Commit changes...
+echo [4/6] Commit changes...
 set /p COMMIT_MSG="Commit message (Enter=Default): "
 if "%COMMIT_MSG%"=="" (
-    set COMMIT_MSG=v%VERSION% Release - %CHANGELOG_MSG%
+    set COMMIT_MSG=Local Build v%VERSION% - %CHANGELOG_MSG%
 )
 
 git add .
 git commit -m "%COMMIT_MSG%"
 
 echo.
-echo [4/7] Push to main...
+echo [5/6] Push to main...
 git push origin main
 
 echo.
-echo [5/7] Create tag (v%VERSION%)...
-git tag -a v%VERSION% -m "Release v%VERSION%"
+echo [6/6] Deploy to GitHub Releases...
+echo ⚠️  GitHub Token이 필요합니다 (환경변수 GITHUB_TOKEN 또는 직접 입력)
+python deploy_local.py
 
 echo.
-echo [6/7] Push tag (Triggers GitHub Actions)...
-git push origin v%VERSION%
-
-echo.
-echo [7/7] Done! Check build progress in Actions.
 echo ========================================
-echo https://github.com/SungMinseok/PbbAuto/actions
+echo ✅ Local Build Deploy Complete!
 echo ========================================
-start https://github.com/SungMinseok/PbbAuto/actions/workflows/build-and-release.yml
+echo GitHub: https://github.com/SungMinseok/PbbAuto/releases
 
 pause

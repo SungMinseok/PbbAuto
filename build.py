@@ -8,8 +8,9 @@ import sys
 import json
 import shutil
 import subprocess
+import zipfile
 from datetime import datetime
-
+from pathlib import Path
 
 def load_version_info():
     """Load version info from version.json"""
@@ -200,6 +201,32 @@ def build_exe(spec_file):
         return False
 
 
+def create_zip_package():
+    """Create BundleEditor.zip with BundleEditor.exe and version.json"""
+    exe_path = 'dist/BundleEditor.exe'
+    version_json_path = 'version.json'
+    zip_path = 'dist/BundleEditor.zip'
+    
+    if not os.path.exists(exe_path):
+        print(f"[ERROR] BundleEditor.exe not found at: {exe_path}")
+        return False
+    
+    if not os.path.exists(version_json_path):
+        print(f"[ERROR] version.json not found at: {version_json_path}")
+        return False
+    
+    try:
+        with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as zipf:
+            zipf.write(exe_path, 'BundleEditor.exe')
+            zipf.write(version_json_path, 'version.json')
+        
+        print(f"[DONE] Zip package created: {zip_path}")
+        return True
+    except Exception as e:
+        print(f"[ERROR] Failed to create zip package: {e}")
+        return False
+
+
 def clean_build():
     """Remove temporary files"""
     for d in ['build', '__pycache__']:
@@ -219,21 +246,34 @@ def main():
     print(f"Version: {version_info.get('version', 'unknown')}")
     print(f"Build date: {version_info.get('build_date', 'unknown')}")
 
-    print("\n[1/4] Creating version file...")
+    print("\n[1/5] Creating version file...")
     create_version_file()
 
-    print("\n[2/4] Creating spec file...")
+    print("\n[2/5] Creating spec file...")
     spec_file = create_spec_file()
 
-    print("\n[3/4] Building EXE...")
+    print("\n[3/5] Building EXE...")
     if not build_exe(spec_file):
         sys.exit(1)
 
-    print("\n[4/4] Cleaning up...")
+    print("\n[4/5] Creating zip package...")
+    if not create_zip_package():
+        sys.exit(1)
+
+    print("\n[5/5] Cleaning up...")
     clean_build()
 
+    # ❌ dist/BundleEditor.exe 삭제
+    exe_path = Path("dist/BundleEditor.exe")
+    if exe_path.exists():
+        exe_path.unlink()
+        print(f"[INFO] Deleted executable: {exe_path}")
+    else:
+        print(f"[INFO] No executable to delete at: {exe_path}")
+
     print("\nBuild completed successfully!")
-    print("Generated: dist/BundleEditor.exe")
+    print("Generated files:")
+    print("  - dist/BundleEditor.zip")
 
 
 if __name__ == '__main__':
