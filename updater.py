@@ -194,58 +194,97 @@ class UpdateDownloader:
         
     def download(self, url: str, progress_callback=None) -> Optional[str]:
         """
-        파일 다운로드
-        
-        Args:
-            url: 다운로드 URL
-            progress_callback: 진행률 콜백 함수 (received, total)
-            
-        Returns:
-            다운로드된 파일 경로
+        파일 다운로드 (자동 재시작 + 이어받기 + 정체 감지 복구)
         """
+        import time
+        from requests.adapters import HTTPAdapter
+        from urllib3.util.retry import Retry
+
         self.progress_callback = progress_callback
         self.cancel_flag = False
-        
-        try:
-            self._log(f"다운로드 시작: {url}")
-            
-            # 임시 파일 생성
-            temp_dir = tempfile.gettempdir()
-            filename = os.path.basename(url.split('?')[0])  # 쿼리 파라미터 제거
-            self.download_path = os.path.join(temp_dir, filename)
-            
-            # 다운로드
-            response = requests.get(url, stream=True, timeout=30)
-            response.raise_for_status()
-            
-            total_size = int(response.headers.get('content-length', 0))
-            downloaded_size = 0
-            
-            with open(self.download_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    if self.cancel_flag:
-                        self._log("다운로드 취소됨")
-                        self._cleanup()
-                        return None
-                    
-                    if chunk:
+        temp_dir = tempfile.gettempdir()
+        filename = os.path.basename(url.split('?')[0])
+        self.download_path = os.path.join(temp_dir, filename)
+
+        # requests 세션 (자동 재시도)
+        session = requests.Session()
+        retries = Retry(total=5, backoff_factor=2, status_forcelist=[500, 502, 503, 504])
+        session.mount("https://", HTTPAdapter(max_retries=retries))
+
+        max_retries = 3
+        retry_delay = 3
+        last_downloaded = 0
+        last_progress_time = 0
+        stagnation_limit = 30  # 30초 동안 진행이 없으면 재시작
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                # 이어받기 설정
+                headers = {}
+                downloaded_size = 0
+                if os.path.exists(self.download_path):
+                    downloaded_size = os.path.getsize(self.download_path)
+                    headers["Range"] = f"bytes={downloaded_size}-"
+
+                self._log(f"[{attempt}/{max_retries}] 다운로드 시작 (이어받기 {downloaded_size} bytes)")
+
+                response = session.get(url, headers=headers, stream=True, timeout=(5, 60))
+                response.raise_for_status()
+
+                total_size = int(response.headers.get("content-length", 0)) + downloaded_size
+                self._log(f"총 다운로드 크기: {total_size} bytes")
+
+                mode = "ab" if downloaded_size > 0 else "wb"
+                with open(self.download_path, mode) as f:
+                    start_time = time.time()
+                    last_downloaded = downloaded_size
+                    last_progress_time = start_time
+
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if self.cancel_flag:
+                            self._log("다운로드 취소됨")
+                            self._cleanup()
+                            return None
+
+                        if not chunk:
+                            continue
+
                         f.write(chunk)
                         downloaded_size += len(chunk)
-                        
+
                         if self.progress_callback and total_size > 0:
                             self.progress_callback(downloaded_size, total_size)
-            
-            self._log(f"다운로드 완료: {self.download_path}")
-            return self.download_path
-            
-        except requests.RequestException as e:
-            self._log_error(f"다운로드 실패: {e}")
-            self._cleanup()
-            return None
-        except Exception as e:
-            self._log_error(f"다운로드 중 오류: {e}")
-            self._cleanup()
-            return None
+
+                        # 5초마다 로그
+                        now = time.time()
+                        if now - last_progress_time > 5:
+                            speed = (downloaded_size - last_downloaded) / (now - last_progress_time)
+                            self._log(f"[DEBUG] {downloaded_size}/{total_size} bytes ({downloaded_size/total_size*100:.2f}%), {speed/1024:.1f} KB/s")
+                            last_downloaded = downloaded_size
+                            last_progress_time = now
+
+                        # 진행 정체 감지 (30초 이상 변동 없을 시)
+                        if now - last_progress_time > stagnation_limit:
+                            self._log_error("⚠️ 다운로드 정체 감지 — 자동 재시작 시도 중...")
+                            raise TimeoutError("다운로드 정체 감지로 재시작")
+
+                self._log(f"✅ 다운로드 완료: {self.download_path}")
+                return self.download_path
+
+            except Exception as e:
+                import traceback
+                self._log_error(f"오류 발생 (시도 {attempt}/{max_retries}): {e}")
+                self._log_error(traceback.format_exc())
+
+                if attempt < max_retries:
+                    self._log(f"{retry_delay}초 후 자동 재시작 (이어받기 유지)...")
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    self._log_error("❌ 모든 재시도 실패 — 다운로드 중단됨.")
+                    self._cleanup()
+                    return None
+
     
     def cancel(self):
         """다운로드 취소"""
@@ -588,17 +627,32 @@ class AutoUpdater:
 
 
 if __name__ == '__main__':
-    # 테스트 코드
     print("=== 업데이트 시스템 테스트 ===")
     
     updater = AutoUpdater()
+
     has_update, info, error_msg = updater.checker.check_for_updates()
-    
+
     if error_msg:
         updater._log_error(f"에러: {error_msg}")
     elif has_update:
-        updater._log(f"새 버전: {info['version']}")
+        updater._log(f"새 버전 발견: {info['version']}")
         updater._log(f"변경사항:\n{info['body']}")
+        
+        # 테스트용: 실제 업데이트 실행
+        updater._log("테스트 모드: 새 버전 다운로드 및 설치 시도 중...")
+        
+        def progress(received, total):
+            percent = (received / total) * 100
+            updater._log(f"진행률: {percent:.2f}% ({received}/{total} bytes)")
+        
+        def done(success):
+            if success:
+                updater._log("✅ 업데이트 완료 (앱이 재시작됩니다).")
+            else:
+                updater._log_error("❌ 업데이트 실패.")
+        
+        updater.download_and_install(progress_callback=progress, completion_callback=done)
+        
     else:
-        updater._log("최신 버전입니다.")
-
+        updater._log("현재 최신 버전을 사용 중입니다.")
