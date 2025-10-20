@@ -167,7 +167,15 @@ class UpdateDownloader:
                         if progress_callback:
                             progress_callback(downloaded, total_size)
 
+
             self._log(f"✅ 다운로드 완료: {download_path}")
+            # ZIP 저장 후 출처 태그 제거
+            try:
+                zone_file = zip_path + ":Zone.Identifier"
+                if os.path.exists(zone_file):
+                    os.remove(zone_file)
+            except Exception:
+                pass
             return download_path
 
         except Exception as e:

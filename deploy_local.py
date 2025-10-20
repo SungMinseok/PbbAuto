@@ -175,35 +175,30 @@ def main():
     print(f"버전: {version}")
     print(f"변경사항: {changelog}")
     
-    # dist 폴더 확인
-    if not Path("dist/BundleEditor.exe").exists():
-        print("\n❌ 빌드된 EXE 파일이 없습니다!")
-        print("먼저 'python build.py'를 실행하여 빌드를 완료하세요.")
+    # ZIP 파일 확인
+    zip_path = Path("dist/BundleEditor.zip")
+    if not zip_path.exists():
+        print("\n❌ dist/BundleEditor.zip 파일이 존재하지 않습니다!")
+        print("먼저 빌드 후 zip 파일을 생성하세요.")
         return 1
-    
+
     # 사용자 확인
     print(f"\n🚀 v{version} 릴리즈를 GitHub에 배포하시겠습니까?")
     response = input("계속하려면 'y'를 입력하세요: ").lower().strip()
     if response != 'y':
         print("배포 취소됨")
         return 0
-    
+
     # GitHub 토큰 확인
     token = get_github_token()
     if not token:
         return 1
-    
-    zip_path = None
+
     try:
-        # ZIP 패키지 생성
-        zip_path = create_zip_package(version)
-        if not zip_path:
-            return 1
-        
         # GitHub 릴리즈 생성 및 업로드
         if not create_github_release(version, changelog, token, zip_path):
             return 1
-        
+
         print("\n" + "=" * 60)
         print("✅ 배포 완료!")
         print("=" * 60)
@@ -211,13 +206,13 @@ def main():
         print("사용자들이 이제 업데이트를 받을 수 있습니다.")
         
         return 0
-        
+
     except Exception as e:
         print(f"\n❌ 배포 중 오류 발생: {e}")
         import traceback
         traceback.print_exc()
         return 1
-    
+
     finally:
         # 정리
         cleanup_files(zip_path)
