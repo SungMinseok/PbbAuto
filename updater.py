@@ -484,17 +484,62 @@ class UpdateInstaller:
                     print(f"원래 업데이트 파일 경로: {update_file}")
                     print(f"안전한 업데이트 파일 경로: {safe_update_file}")
                 
+                # ZIP 파일인지 확인하고 압축 해제 경로 설정
+                temp_extract_dir = os.path.join(tempfile.gettempdir(), 'update_extract')
+                safe_extract_dir = get_safe_path(temp_extract_dir)
+                
                 script_content = f"""@echo off
 chcp 65001 > nul
 echo 업데이트 설치 중...
 timeout /t 2 /nobreak > nul
 
+REM 압축 해제 디렉토리 생성
+if exist "{safe_extract_dir}" rmdir /s /q "{safe_extract_dir}"
+mkdir "{safe_extract_dir}"
+
+REM ZIP 파일 압축 해제 (PowerShell 사용)
+echo ZIP 파일 압축 해제 중...
+powershell -command "Expand-Archive -Path '{safe_update_file}' -DestinationPath '{safe_extract_dir}' -Force"
+
+REM 압축 해제 확인
+if not exist "{safe_extract_dir}" (
+    echo 압축 해제 실패!
+    pause
+    exit /b 1
+)
+
+REM 압축 해제된 EXE 파일 찾기 (BundleEditor.exe 또는 *.exe)
+set "extracted_exe="
+for /r "{safe_extract_dir}" %%f in (BundleEditor.exe) do (
+    if exist "%%f" set "extracted_exe=%%f"
+)
+
+REM BundleEditor.exe가 없으면 첫 번째 .exe 파일 사용
+if "%extracted_exe%"=="" (
+    for /r "{safe_extract_dir}" %%f in (*.exe) do (
+        if "%extracted_exe%"=="" set "extracted_exe=%%f"
+    )
+)
+
+REM EXE 파일 찾기 확인
+if "%extracted_exe%"=="" (
+    echo 압축 해제된 폴더에서 EXE 파일을 찾을 수 없습니다!
+    echo 압축 해제 폴더 내용:
+    dir "{safe_extract_dir}" /s
+    pause
+    exit /b 1
+)
+
+echo 찾은 EXE 파일: %extracted_exe%
+
 REM 현재 실행 파일 백업
 if exist "{safe_backup}" del /f /q "{safe_backup}"
+echo 현재 실행 파일 백업 중...
 move "{safe_current_exe}" "{safe_backup}"
 
 REM 새 버전 복사
-copy /y "{safe_update_file}" "{safe_current_exe}"
+echo 새 버전 설치 중...
+copy /y "%extracted_exe%" "{safe_current_exe}"
 
 REM 복사 성공 확인
 if not exist "{safe_current_exe}" (
@@ -504,8 +549,10 @@ if not exist "{safe_current_exe}" (
     exit /b 1
 )
 
-REM 임시 파일 삭제
+REM 임시 파일들 삭제
+echo 임시 파일 정리 중...
 if exist "{safe_update_file}" del /f /q "{safe_update_file}"
+if exist "{safe_extract_dir}" rmdir /s /q "{safe_extract_dir}"
 
 echo 업데이트 완료!
 """
