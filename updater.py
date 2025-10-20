@@ -1,5 +1,5 @@
 """
-자동 업데이트 시스템 (단순화 버전)
+자동 업데이트 시스템 (리팩토링 버전)
 GitHub Releases를 통한 자동 업데이트 관리
 
 9단계 프로세스:
@@ -69,7 +69,7 @@ class UpdateChecker:
     def check_for_updates(self) -> Tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
         """
         [1~2] 서버에서 최신 버전 조회 및 로컬 버전 비교
-            
+        
         Returns:
             (has_update, update_info, error_message)
         """
@@ -121,7 +121,7 @@ class UpdateChecker:
             error_msg = f"업데이트 확인 중 오류: {e}"
             self._log_error(error_msg)
             return False, None, error_msg
-    
+
 
 class UpdateInstaller:
     """[4~9] 업데이트 다운로드 및 설치"""
@@ -144,14 +144,6 @@ class UpdateInstaller:
             self.main_app.log_error(message)
         else:
             print(message)
-        
-    def _calculate_checksum(self, file_path: str) -> str:
-        """파일의 SHA256 체크섬 계산"""
-        sha256_hash = hashlib.sha256()
-        with open(file_path, "rb") as f:
-            for byte_block in iter(lambda: f.read(4096), b""):
-                sha256_hash.update(byte_block)
-        return sha256_hash.hexdigest()
     
     def download_and_install(self, download_url: str, progress_callback=None) -> bool:
         """
@@ -197,7 +189,7 @@ class UpdateInstaller:
                 for chunk in response.iter_content(chunk_size=8192):
                     if self.cancel_flag:
                         self._log("다운로드 취소됨")
-                return False
+                        return False
                     
                     if chunk:
                         f.write(chunk)
@@ -361,7 +353,7 @@ class AutoUpdater:
             self.main_app.log_error(message)
         else:
             print(message)
-        
+    
     def check_updates_async(self, callback=None):
         """
         [1~3] 비동기로 업데이트 확인
@@ -384,8 +376,8 @@ class AutoUpdater:
                 if callback:
                     callback(False, None, str(e))
         
-            thread = threading.Thread(target=check_thread, daemon=True)
-            thread.start()
+        thread = threading.Thread(target=check_thread, daemon=True)
+        thread.start()
     
     def download_and_install(self, progress_callback=None, completion_callback=None):
         """
@@ -414,8 +406,8 @@ class AutoUpdater:
                 success = self.installer.download_and_install(download_url, progress_callback)
                 
                 # 참고: sys.exit(0)가 호출되므로 여기에 도달하지 않음
-                    if completion_callback:
-                        completion_callback(success)
+                if completion_callback:
+                    completion_callback(success)
                     
             except Exception as e:
                 self._log_error(f"업데이트 설치 오류: {e}")

@@ -1490,7 +1490,7 @@ class PbbAutoApp(QWidget):
         except Exception as e:
             print(f"테스트 제목 추출 중 오류: {e}")
             return "테스트"
-    
+
     # ========== 스케줄링 관련 메서드들 ==========
     def open_schedule_dialog(self):
         """스케줄 설정 다이얼로그 열기"""
@@ -2366,14 +2366,14 @@ if __name__ == '__main__':
             sys.excepthook = qt_exception_handler
         except:
             pass  # 설정 실패해도 기본 excepthook은 이미 설정됨
-        
+            
         ex = PbbAutoApp()
         ex.show()
-        
+            
         # 애플리케이션 시작 전 마지막 예외 처리 설정
         print("🚀 PbbAuto 애플리케이션이 시작됩니다...")
         print("📝 모든 예외는 logs/ 폴더에 자동으로 기록됩니다.")
-        
+            
         sys.exit(app.exec_())
         
     except Exception as e:
