@@ -29,5 +29,5 @@
       "notes": "알 수 없는 앱의 경우 기본적으로 스케일링 적용"
     }
   },
-  "debug_mode": false
+  "debug_mode": true
 }

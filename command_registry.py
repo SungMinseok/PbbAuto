@@ -22,7 +22,7 @@ try:
 except ImportError:
     print("PIL(Pillow) 라이브러리가 필요합니다. 'pip install Pillow' 명령어로 설치해주세요.")
     PILImage = None
-from constants import cl_dir, test_results_dir
+from constants import test_results_dir
 from utils import take_screenshot, take_screenshot_with_coords, image_to_text, calculate_adjusted_coordinates, calculate_offset_coordinates
 from datetime import datetime
 import glob
@@ -37,8 +37,8 @@ class CommandBase(ABC):
         self.extracted_text = ""
         self.expected_text = ""
         self.last_result = "N/A"
-        self.checklist_file = "checklist.xlsx"
-        self.cl_path = os.path.join(cl_dir, self.checklist_file)
+        #self.checklist_file = "checklist.xlsx"
+        #self.cl_path = os.path.join(cl_dir, self.checklist_file)
         self.main_app = None  # 메인 앱 참조
     
     def set_main_app(self, main_app):
