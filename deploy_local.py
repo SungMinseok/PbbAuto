@@ -109,7 +109,7 @@ def create_github_release(version, changelog, token, zip_path):
         "tag_name": tag_name,
         "target_commitish": "main",
         "name": f"Release {version}",
-        "body": f"## 변경사항\n- {changelog}\n\n⚠️ **로컬 빌드 버전**: Windows Defender 호환성 개선",
+        "body": f"## 변경사항\n- {changelog}\n\n **자체 업데이트 가능 버전**",
         "draft": False,
         "prerelease": False
     }
