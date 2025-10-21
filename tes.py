@@ -38,14 +38,14 @@ def image_to_text_with_fallback(
         return pytesseract.image_to_string(image, lang=lang, config=custom_config).strip()
 
     try:
-        print(f"[🔍] OCR 처리 중: {img_path}")
+        print(f"OCR 처리 중: {img_path}")
         img = Image.open(img_path)
         if preview:
             img.show()
         # 1차 시도
         result = try_ocr(img)
         if result:
-            print("[✅ 원본 OCR 결과]:", result)
+            print("[원본 OCR 결과]:", result)
             return result
 
         # 2차 시도: 반전 후 전처리
@@ -64,7 +64,7 @@ def image_to_text_with_fallback(
 
         result = try_ocr(inverted)
         if result:
-            print("[✅ 반전 OCR 결과 (반전 후 전처리)]:", result)
+            print("[반전 OCR 결과 (반전 후 전처리)]:", result)
         else:
             print("[⚠️ 반전 후에도 텍스트를 찾지 못했습니다.]")
 

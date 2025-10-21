@@ -1132,6 +1132,37 @@ class WaitUntilCommand(CommandBase):
     def description(self): 
         return "스크린샷을 1초마다 찍어서 입력한 텍스트가 출력될 때까지 반복"
     
+    def _interruptible_sleep(self, duration, params, context=""):
+        """중지 플래그를 체크하면서 대기하는 함수
+        
+        Args:
+            duration: 대기 시간 (초)
+            params: 파라미터 딕셔너리 (processor_stop_flag 체크용)
+            context: 대기 컨텍스트 (디버깅용)
+        
+        Returns:
+            bool: True if interrupted (중지됨), False if completed (완료됨)
+        """
+        if duration <= 0:
+            return False
+            
+        # 0.1초 간격으로 중지 플래그 체크
+        check_interval = 0.1
+        total_slept = 0
+        
+        while total_slept < duration:
+            # params에서 CommandProcessor의 실시간 stop_flag 체크
+            processor = params.get('processor') if params else None
+            if processor and hasattr(processor, 'stop_flag') and processor.stop_flag:
+                print(f"⚠️ WaitUntil {context} 중지됨 (경과시간: {total_slept:.1f}초/{duration}초)")
+                return True  # 중지됨
+            
+            sleep_time = min(check_interval, duration - total_slept)
+            time.sleep(sleep_time)
+            total_slept += sleep_time
+            
+        return False  # 완료됨
+    
     def create_ui(self):
         widget = QWidget()
         layout = QVBoxLayout()
@@ -1200,7 +1231,7 @@ class WaitUntilCommand(CommandBase):
         tries_layout = QHBoxLayout()
         tries_layout.addWidget(QLabel('최대 시도:'))
         self.max_tries_input = QSpinBox()
-        self.max_tries_input.setRange(1, 100)
+        self.max_tries_input.setRange(1, 10000)
         self.max_tries_input.setValue(10)
         self.max_tries_input.setSuffix('회')
         tries_layout.addWidget(self.max_tries_input)
@@ -1337,12 +1368,25 @@ class WaitUntilCommand(CommandBase):
         print(f"'{target_text}' 텍스트가 나타날 때까지 대기 중... (매칭모드: {match_mode_text}, 최대 {max_tries}회 시도)")
         
         for i in range(max_tries):
+            # 중지 플래그 체크 (각 반복 시작 시)
+            processor = params.get('processor') if params else None
+            if processor and hasattr(processor, 'stop_flag') and processor.stop_flag:
+                print(f"⚠️ WaitUntil 중지됨 ({i}/{max_tries}번째 시도)")
+                return
+            
+            # processor_state에서 중지 요청 확인
+            if processor_state and processor_state.get('stop_requested', False):
+                print(f"⚠️ WaitUntil 중지됨 (state 플래그, {i}/{max_tries}번째 시도)")
+                return
+            
             try:
                 # 스크린샷 촬영
                 screenshot_path = take_screenshot_with_coords(x, y, width, height)
                 if not screenshot_path:
                     print(f"[{i+1}/{max_tries}] 스크린샷 촬영 실패")
-                    time.sleep(1)
+                    # 중단 가능한 1초 대기
+                    if self._interruptible_sleep(1, params, f"screenshot retry wait ({i+1}/{max_tries})"):
+                        return
                     continue
                 
                 # OCR 실행
@@ -1381,8 +1425,9 @@ class WaitUntilCommand(CommandBase):
             except Exception as e:
                 print(f"[{i+1}/{max_tries}] 오류 발생: {e}")
             
-            # 1초 대기
-            time.sleep(1)
+            # 중단 가능한 1초 대기
+            if self._interruptible_sleep(1, params, f"waituntil retry ({i+1}/{max_tries})"):
+                return
         
         print(f"✗ 타임아웃: {max_tries}회 시도 후에도 '{target_text}' 텍스트를 찾지 못했습니다. (매칭모드: {match_mode_text})")
     
@@ -1888,7 +1933,7 @@ class TestTextCommand(CommandBase):
         
         repeat_layout.addWidget(QLabel('최대 시도:'))
         self.max_tries_input = QSpinBox()
-        self.max_tries_input.setRange(1, 100)
+        self.max_tries_input.setRange(1, 10000)
         self.max_tries_input.setValue(10)
         self.max_tries_input.setSuffix('회')
         self.max_tries_input.setEnabled(False)  # 기본적으로 비활성화
@@ -2794,9 +2839,9 @@ class ExportResultCommand(CommandBase):
         return f"exportresult {title} {export_excel} {include_images} {export_text} {send_slack} {webhook_url} {create_jira} {jira_url} {jira_project} {jira_email} {jira_token}"
     
     def execute(self, params, window_coords=None, processor_state=None):
-        print("\n" + "="*50)
-        print("테스트 결과 내보내기 (exportresult)")
-        print("="*50)
+        print("-"*50)
+        print("📋 테스트 결과 내보내기 (exportresult)")
+        print("-"*50)
         
         if processor_state is None or 'test_results' not in processor_state:
             print("저장된 테스트 결과가 없습니다.")
@@ -2815,7 +2860,7 @@ class ExportResultCommand(CommandBase):
         self._update_current_window_info(window_info)
         
         if window_info or executed_apps:
-            print("\n📱 실행 환경 정보:")
+            print(" 실행 환경 정보:")
             print("-" * 30)
             
             # 기본 윈도우 정보
@@ -2899,7 +2944,7 @@ class ExportResultCommand(CommandBase):
         if export_excel:
             if include_images:
                 # 이미지 포함 모드
-                print("📊 엑셀 파일 생성 중... (이미지 포함 모드)")
+                print("엑셀 파일 생성 중... (이미지 포함 모드)")
                 try:
                     self._create_excel_report(test_results, excel_path, processor_state)
                     print(f"✓ 엑셀 파일 저장됨 (이미지 포함): {excel_path}")
@@ -2916,7 +2961,7 @@ class ExportResultCommand(CommandBase):
                         print(f"❌ 안전 모드 fallback도 실패: {e2}")
             else:
                 # 안전 모드 (기본값)
-                print("📊 엑셀 파일 생성 중... (안전 모드 - 이미지 제외)")
+                print("엑셀 파일 생성 중... (안전 모드 - 이미지 제외)")
                 try:
                     self._create_excel_report_safe(test_results, excel_path, processor_state)
                     print(f"✓ 엑셀 파일 저장됨 (안전 모드): {excel_path}")
@@ -2927,7 +2972,7 @@ class ExportResultCommand(CommandBase):
         # 2. 텍스트 요약 파일 생성
         txt_success = False
         if export_text:
-            print("📄 텍스트 요약 파일 생성 중...")
+            print("텍스트 요약 파일 생성 중...")
             try:
                 self._create_text_summary(test_results, text_path, processor_state, title)
                 print(f"✓ 텍스트 요약 저장됨: {text_path}")
@@ -2938,7 +2983,7 @@ class ExportResultCommand(CommandBase):
         # 3. 슬랙 알림 발송
         slack_success = False
         if send_slack and webhook_url:
-            print("💬 슬랙 알림 발송 중...")
+            print("슬랙 알림 발송 중...")
             try:
                 slack_success = self._send_slack_notification(test_results, webhook_url, processor_state, base_filename, title)
                 if slack_success:
@@ -2953,7 +2998,7 @@ class ExportResultCommand(CommandBase):
         if create_jira and jira_url and jira_project and jira_email and jira_token:
             failed_tests = [r for r in test_results if r['result'] == 'Fail']
             if failed_tests:
-                print("🎯 Jira 이슈 생성 중...")
+                print("Jira 이슈 생성 중...")
                 try:
                     jira_success = self._create_jira_issues(failed_tests, jira_url, jira_project, jira_email, jira_token, title)
                     if jira_success:
@@ -2963,7 +3008,7 @@ class ExportResultCommand(CommandBase):
                 except Exception as e:
                     print(f"❌ Jira 이슈 생성 중 오류: {e}")
             else:
-                print("ℹ️ 실패한 테스트가 없어 Jira 이슈를 생성하지 않습니다.")
+                print("실패한 테스트가 없어 Jira 이슈를 생성하지 않습니다.")
                 jira_success = True  # 실패한 테스트가 없으면 성공으로 간주
         
         # 결과 요약

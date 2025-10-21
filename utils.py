@@ -333,3 +333,126 @@ def is_keep_alive_running():
     """Keep-alive 실행 상태 확인"""
     global _global_keep_alive
     return _global_keep_alive and _global_keep_alive.is_running
+
+
+# ==================== 화면 밝기 조절 기능 ====================
+
+_original_brightness = None  # 원래 밝기 저장용
+
+def get_current_brightness():
+    """현재 화면 밝기 가져오기 (0-100%)"""
+    try:
+        import subprocess
+        # PowerShell 명령어로 현재 밝기 가져오기
+        result = subprocess.run([
+            'powershell', '-Command',
+            '(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightness).CurrentBrightness'
+        ], capture_output=True, text=True, timeout=5)
+        
+        if result.returncode == 0 and result.stdout.strip():
+            brightness = int(result.stdout.strip())
+            print(f"현재 화면 밝기: {brightness}%")
+            return brightness
+    except Exception as e:
+        print(f"화면 밝기 조회 실패: {e}")
+    
+    return None
+
+def set_screen_brightness(brightness_percent):
+    """화면 밝기 설정 (0-100%)
+    
+    Args:
+        brightness_percent: 0(완전 어둠) ~ 100(최대 밝기)
+    
+    Returns:
+        bool: 성공 여부
+    """
+    try:
+        # 범위 확인
+        brightness_percent = max(0, min(100, int(brightness_percent)))
+        
+        import subprocess
+        # PowerShell 명령어로 밝기 설정
+        command = f"""
+$brightness = {brightness_percent}
+(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1, $brightness)
+"""
+        
+        result = subprocess.run([
+            'powershell', '-Command', command
+        ], capture_output=True, text=True, timeout=10)
+        
+        if result.returncode == 0:
+            print(f"✓ 화면 밝기가 {brightness_percent}%로 설정되었습니다")
+            return True
+        else:
+            print(f"화면 밝기 설정 실패: {result.stderr}")
+            return False
+            
+    except Exception as e:
+        print(f"화면 밝기 설정 중 오류: {e}")
+        return False
+
+def dim_screen(target_brightness=5):
+    """화면을 어둡게 만들기 (원래 밝기 저장)
+    
+    Args:
+        target_brightness: 목표 밝기 (기본값: 5%, 거의 어둡게)
+    
+    Returns:
+        bool: 성공 여부
+    """
+    global _original_brightness
+    
+    try:
+        # 현재 밝기 저장
+        _original_brightness = get_current_brightness()
+        if _original_brightness is None:
+            print("⚠️ 현재 밝기를 가져올 수 없어 기본값 80%로 설정합니다")
+            _original_brightness = 80  # 기본값
+        
+        # 화면을 어둡게 설정
+        success = set_screen_brightness(target_brightness)
+        if success:
+            print(f"🌙 화면이 어두워졌습니다 (원래: {_original_brightness}% → 현재: {target_brightness}%)")
+            print("   스케줄 실행 중에도 모니터가 꺼지지 않습니다")
+        
+        return success
+        
+    except Exception as e:
+        print(f"화면 어둡게 하기 실패: {e}")
+        return False
+
+def restore_screen_brightness():
+    """화면 밝기를 원래대로 복구
+    
+    Returns:
+        bool: 성공 여부
+    """
+    global _original_brightness
+    
+    try:
+        if _original_brightness is None:
+            print("⚠️ 저장된 원래 밝기가 없습니다. 80%로 복구합니다")
+            _original_brightness = 80
+        
+        success = set_screen_brightness(_original_brightness)
+        if success:
+            print(f"☀️ 화면 밝기가 복구되었습니다 ({_original_brightness}%)")
+        
+        # 복구 후 초기화
+        _original_brightness = None
+        return success
+        
+    except Exception as e:
+        print(f"화면 밝기 복구 실패: {e}")
+        return False
+
+def is_screen_dimmed():
+    """화면이 어두워진 상태인지 확인
+    
+    Returns:
+        bool: 어두워진 상태 여부
+    """
+    global _original_brightness
+    return _original_brightness is not None

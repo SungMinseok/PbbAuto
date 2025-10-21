@@ -37,7 +37,7 @@ def create_zip_package(version):
         return None
     
     # ZIP 파일명
-    zip_filename = f"BundleEditor_v{version}.zip"
+    zip_filename = f"BundleEditor_{version}.zip"
     zip_path = Path(zip_filename)
     
     # 기존 ZIP 파일 삭제
@@ -98,17 +98,17 @@ def get_github_token():
 
 def create_github_release(version, changelog, token, zip_path):
     """GitHub 릴리즈 생성 및 파일 업로드"""
-    print(f"\n[2/4] GitHub 릴리즈 생성 중... (v{version})")
+    print(f"\n[2/4] GitHub 릴리즈 생성 중... ({version})")
     
     repo_owner = "SungMinseok"
-    repo_name = "PbbAuto"
-    tag_name = f"v{version}"
+    repo_name = "BundleEditor"
+    tag_name = f"{version}"
     
     # 릴리즈 데이터
     release_data = {
         "tag_name": tag_name,
         "target_commitish": "main",
-        "name": f"Release v{version}",
+        "name": f"Release {version}",
         "body": f"## 변경사항\n- {changelog}\n\n⚠️ **로컬 빌드 버전**: Windows Defender 호환성 개선",
         "draft": False,
         "prerelease": False
@@ -169,9 +169,12 @@ def cleanup_files(zip_path):
 def send_slack_notification(version, changelog, webhooks):
     """Slack Webhook으로 릴리즈 알림 전송"""
     message = {
-        "text": f":rocket: *PbbAuto v{version}* 배포 완료!\n"
+        "text": f":rocket: *BundleEditor {version}* 업데이트\n"
+                f"• 앱 다운로드 경로: //\n"
+                #업데이트 방법 
+                f"• 업데이트 방법: 앱 재실행 또는 Help-업데이트 확인 버튼 클릭\n"
                 f"• 변경사항: {changelog}\n"
-                f"• 릴리즈 링크: https://github.com/SungMinseok/PbbAuto/releases/tag/v{version}"
+                #f"• 릴리즈 링크: https://github.com/SungMinseok/BundleEditor/releases/tag/{version}"
     }
 
     for name, url in webhooks.items():
@@ -186,9 +189,30 @@ def send_slack_notification(version, changelog, webhooks):
         except Exception as e:
             print(f"⚠️ Slack 알림 중 오류 ({name}): {e}")
 
+def choose_webhook(webhooks: dict) -> str:
+    keys = list(webhooks.keys())
+    print("\n🔔 사용할 Slack Webhook을 선택하세요:")
+    for i, k in enumerate(keys, 1):
+        print(f"{i}. {k}")
+
+    while True:
+        try:
+            choice = int(input("번호 입력 (취소하려면 0): ").strip())
+            if choice == 0:
+                print("Slack 알림 전송 취소됨.")
+                return None
+            elif 1 <= choice <= len(keys):
+                selected_key = keys[choice - 1]
+                print(f"✅ 선택된 Webhook: {selected_key}")
+                return webhooks[selected_key]
+            else:
+                print("⚠️ 잘못된 번호입니다. 다시 입력하세요.")
+        except ValueError:
+            print("⚠️ 숫자를 입력해주세요.")
+
 def main():
     print("=" * 60)
-    print("PbbAuto 로컬 빌드 배포 스크립트")
+    print("BundleEditor 로컬 빌드 배포 스크립트")
     print("=" * 60)
     
     version_info = load_version_info()
@@ -206,7 +230,7 @@ def main():
         print("\n❌ dist/BundleEditor.zip 파일이 존재하지 않습니다!")
         return 1
 
-    print(f"\n🚀 v{version} 릴리즈를 GitHub에 배포하시겠습니까?")
+    print(f"\n🚀 {version} 릴리즈를 GitHub에 배포하시겠습니까?")
     response = input("계속하려면 'y'를 입력하세요: ").lower().strip()
     if response != 'y':
         print("배포 취소됨")
@@ -226,11 +250,13 @@ def main():
         print("\n" + "=" * 60)
         print("✅ GitHub 릴리즈 완료!")
         print("=" * 60)
-        print(f"릴리즈 URL: https://github.com/SungMinseok/PbbAuto/releases/tag/v{version}")
+        print(f"릴리즈 URL: https://github.com/SungMinseok/BundleEditor/releases/tag/{version}")
 
         # 🔔 Slack 알림 전송
         if webhooks:
-            send_slack_notification(version, changelog, webhooks)
+            webhook_url = choose_webhook(webhooks)
+            if webhook_url:
+                send_slack_notification(version, changelog, webhook_url)
         else:
             print("⚠️ token.json에 Slack Webhook 정보가 없습니다.")
 

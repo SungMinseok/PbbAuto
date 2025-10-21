@@ -18,12 +18,13 @@ from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QL
                              QTableWidgetItem, QHeaderView, QTabWidget, QTextEdit,
                              QDateEdit, QTimeEdit, QDialogButtonBox, QSpinBox)
 from PyQt5.QtCore import QTimer, Qt, QDate, QTime, pyqtSignal
-
+from PyQt5.QtGui import QIcon
         # 분리된 모듈들 import (print 오버라이드 후)
 from constants import current_dir, bundles_dir
 from utils import (load_config, save_config, auto_detect_tesseract, take_screenshot, 
                    image_to_text, align_windows, set_pytesseract_cmd, start_keep_alive, 
-                   stop_keep_alive, is_keep_alive_running)
+                   stop_keep_alive, is_keep_alive_running, dim_screen, restore_screen_brightness,
+                   is_screen_dimmed)
 from commands import CommandProcessor
 from dialogs import CommandPopup, TriggerEditor
 from scheduler import ScheduleManager, SchedulerEngine, Schedule, ScheduleType, ScheduleStatus
@@ -48,6 +49,9 @@ class PbbAutoApp(QWidget):
         self.command_processor = CommandProcessor()  # 명령어 처리테스트기
         self.command_processor.set_main_app(self)  # 메인 앱 참조 설정
         self.current_file_path = None  # 현재 불러온 파일의 경로를 기억
+
+        #앱 아이콘 설정
+        self.setWindowIcon(QIcon('probe.ico'))
         
         # 스케줄링 시스템 초기화
         self.schedule_manager = ScheduleManager()
@@ -95,8 +99,12 @@ class PbbAutoApp(QWidget):
         # Keep-alive 상태 초기 업데이트
         self.update_keep_alive_status()
         
-        # 시작 시 자동 업데이트 확인 (비동기)
-        QTimer.singleShot(3000, self.check_for_updates_on_startup)  # 3초 후 체크
+        # 화면 밝기 상태 초기 업데이트
+        self.update_brightness_status()
+        
+        # 시작 시 자동 업데이트 확인 (비동기)(앱실행 즉시)
+        #self.check_for_updates()
+        QTimer.singleShot(100, self.check_for_updates_on_startup)  # 3초 후 체크
     
     def initUI(self):
         """UI 초기화"""
@@ -249,6 +257,13 @@ class PbbAutoApp(QWidget):
         self.keep_alive_status_label = QLabel('PC 잠금 방지: 비활성', self)
         self.keep_alive_status_label.setStyleSheet("color: #666; font-size: 10px;")
         
+        # Screen brightness controls
+        self.dim_screen_button = QPushButton('화면 어둡게', self)
+        self.dim_screen_button.clicked.connect(self.toggle_screen_brightness)
+        self.dim_screen_button.setStyleSheet("font-size: 10px; padding: 2px 8px;")
+        self.brightness_status_label = QLabel('화면: 정상', self)
+        self.brightness_status_label.setStyleSheet("color: #666; font-size: 10px;")
+        
         execute_layout.addWidget(self.execute_count_label)
         execute_layout.addWidget(self.execute_count_lineEdit)
         execute_layout.addWidget(self.open_report_checkbox)
@@ -268,9 +283,16 @@ class PbbAutoApp(QWidget):
         schedule_status_layout.addStretch()
         schedule_status_layout.addWidget(self.keep_alive_status_label)
         schedule_status_layout.addWidget(self.keep_alive_button)
+        
+        # Brightness control layout (세 번째 줄)
+        brightness_layout = QHBoxLayout()
+        brightness_layout.addWidget(self.brightness_status_label)
+        brightness_layout.addStretch()
+        brightness_layout.addWidget(self.dim_screen_button)
 
         main_layout.addLayout(execute_layout)
         main_layout.addLayout(schedule_status_layout)
+        main_layout.addLayout(brightness_layout)
 
     def _init_menubar(self, main_layout):
         """메뉴바 초기화"""
@@ -392,8 +414,9 @@ class PbbAutoApp(QWidget):
         
         # popup을 command_processor.state에 저장 (wait 명령어에서 타이머 업데이트용)
         self.command_processor.state['popup'] = self.popup
-        
-        print("명령어 실행 시작")
+        print("=" * 50)
+        print("▶️ 명령어 실행 시작")
+        print("=" * 50)
         self.execution_thread = threading.Thread(target=self._execute_commands_worker)
         self.execution_thread.daemon = True  # 메인 프로그램 종료 시 자동 종료
         self.execution_thread.start()
@@ -566,9 +589,13 @@ class PbbAutoApp(QWidget):
         """실행 중지 (개선된 버전)"""
         print("🛑 중지 버튼 클릭됨 - 실행 중지 시작...")
         
-        # 중지 플래그 설정
+        # 중지 플래그 설정 (더 강력하게)
         self.stop_flag = True
         self.command_processor.stop_flag = True
+        
+        # 모든 관련 중지 플래그 설정
+        if hasattr(self.command_processor, 'state'):
+            self.command_processor.state['stop_requested'] = True
         
         # 팝업 즉시 닫기 및 참조 제거
         if hasattr(self, 'popup') and self.popup:
@@ -588,22 +615,36 @@ class PbbAutoApp(QWidget):
             if self.execution_thread.is_alive():
                 print("⚠️ 실행 스레드가 아직 실행 중입니다. 강제 종료 대기 중...")
                 
-                # 5초 동안 정상 종료 대기
+                # 10초 동안 정상 종료 대기 (더 길게)
                 import threading
                 import time
                 
                 def wait_for_thread():
-                    for i in range(50):  # 0.1초씩 50번 = 5초
+                    for i in range(100):  # 0.1초씩 100번 = 10초
                         if not self.execution_thread.is_alive():
                             print("✓ 실행 스레드가 정상 종료됨")
                             return
                         time.sleep(0.1)
+                        
+                        # 진행 상황 표시 (2초마다)
+                        if i % 20 == 0 and i > 0:
+                            print(f"   대기 중... ({i//10}초 경과)")
                     
-                    # 5초 후에도 살아있으면 경고
+                    # 10초 후에도 살아있으면 더 강력한 조치
                     if self.execution_thread.is_alive():
-                        print("⚠️ 실행 스레드가 5초 후에도 종료되지 않음")
-                        print("   - 윈도우 대기 중이거나 다른 블로킹 작업 수행 중일 수 있음")
-                        print("   - 프로그램을 재시작하는 것을 권장합니다")
+                        print("❌ 실행 스레드가 10초 후에도 종료되지 않음")
+                        print("   시스템 리소스 정리를 시도합니다...")
+                        
+                        # 추가 정리 작업
+                        try:
+                            # pyautogui 중지 (마우스/키보드 작업 중단)
+                            import pyautogui
+                            pyautogui.FAILSAFE = True
+                            print("   ✓ pyautogui failsafe 활성화")
+                        except:
+                            pass
+                        
+                        print("   ⚠️ 완전한 중지를 위해 프로그램 재시작을 권장합니다")
                 
                 # 별도 스레드에서 대기 (UI 블로킹 방지)
                 wait_thread = threading.Thread(target=wait_for_thread, daemon=True)
@@ -1586,6 +1627,47 @@ class PbbAutoApp(QWidget):
             print(f"Keep-alive 상태 업데이트 오류: {e}")
             self.keep_alive_status_label.setText("PC 잠금 방지: 오류")
     
+    def toggle_screen_brightness(self):
+        """화면 밝기 토글 (어둡게/복구)"""
+        try:
+            if is_screen_dimmed():
+                # 현재 어두운 상태 → 복구
+                if restore_screen_brightness():
+                    self.log("💡 화면 밝기가 원래대로 복구되었습니다")
+                else:
+                    self.log_error("화면 밝기 복구에 실패했습니다")
+            else:
+                # 현재 정상 상태 → 어둡게
+                if dim_screen(target_brightness=5):
+                    self.log("🌙 화면이 어두워졌습니다 (5% 밝기)")
+                else:
+                    self.log_error("화면을 어둡게 하는데 실패했습니다")
+            
+            # 상태 업데이트
+            self.update_brightness_status()
+            
+        except Exception as e:
+            print(f"화면 밝기 토글 오류: {e}")
+            self.log_error(f"화면 밝기 조절 실패: {e}")
+    
+    def update_brightness_status(self):
+        """화면 밝기 상태 UI 업데이트"""
+        try:
+            if is_screen_dimmed():
+                self.dim_screen_button.setText("화면 복구")
+                self.dim_screen_button.setStyleSheet("font-size: 10px; padding: 2px 8px; background-color: #FF9800; color: white;")
+                self.brightness_status_label.setText("화면: 어두워짐 (5%)")
+                self.brightness_status_label.setStyleSheet("color: #FF9800; font-size: 10px;")
+            else:
+                self.dim_screen_button.setText("화면 어둡게")
+                self.dim_screen_button.setStyleSheet("font-size: 10px; padding: 2px 8px;")
+                self.brightness_status_label.setText("화면: 정상")
+                self.brightness_status_label.setStyleSheet("color: #666; font-size: 10px;")
+        except Exception as e:
+            print(f"화면 밝기 상태 업데이트 오류: {e}")
+            self.brightness_status_label.setText("화면: 오류")
+            self.brightness_status_label.setStyleSheet("color: #f44336; font-size: 10px;")
+    
     # ==================== 업데이트 관련 메서드 ====================
     
     def check_for_updates_on_startup(self):
@@ -1845,6 +1927,11 @@ class PbbAutoApp(QWidget):
         """애플리케이션 종료 시 스케줄러 정리"""
         try:
             print("애플리케이션 종료 중...")
+            
+            # 화면 밝기 복구 (어두워진 상태라면)
+            if is_screen_dimmed():
+                print("앱 종료 시 화면 밝기 복구 중...")
+                restore_screen_brightness()
             
             # 스케줄러 엔진 정지
             if hasattr(self, 'scheduler_engine'):
