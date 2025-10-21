@@ -66,26 +66,34 @@ def create_zip_package(version):
     print(f"✅ ZIP 패키지 생성 완료: {zip_path}")
     return zip_path
 
+def load_token_data():
+    """token.json 로드"""
+    token_path = Path("token.json")
+    if not token_path.exists():
+        print("❌ token.json 파일이 없습니다.")
+        return None
+    try:
+        with open(token_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"❌ token.json 읽기 실패: {e}")
+        return None
 
 def get_github_token():
-    """GitHub 토큰 가져오기"""
-    # 환경변수에서 토큰 가져오기
-    token = os.environ.get('GITHUB_TOKEN')
+    """GitHub 토큰 가져오기 (token.json에서 읽기)"""
+    token_data = load_token_data()
+    if token_data and "github_token" in token_data:
+        print("✅ token.json에서 GitHub 토큰을 불러왔습니다.")
+        return token_data["github_token"]
+    
+    token = os.environ.get("GITHUB_TOKEN")
     if token:
+        print("⚙️  환경변수 GITHUB_TOKEN에서 토큰을 불러왔습니다.")
         return token
     
-    # 사용자 입력으로 토큰 받기
-    print("\n⚠️  GitHub Personal Access Token이 필요합니다.")
-    print("GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic)")
-    print("필요한 권한: repo (Full control of private repositories)")
-    print()
-    token = input("GitHub Token을 입력하세요: ").strip()
-    
-    if not token:
-        print("❌ 토큰이 입력되지 않았습니다.")
-        return None
-    
-    return token
+    print("❌ GitHub 토큰을 찾을 수 없습니다.")
+    return None
+
 
 
 def create_github_release(version, changelog, token, zip_path):
@@ -157,54 +165,75 @@ def cleanup_files(zip_path):
             print(f"✅ ZIP 파일 삭제: {zip_path}")
     except Exception as e:
         print(f"⚠️  파일 정리 중 오류: {e}")
+        
+def send_slack_notification(version, changelog, webhooks):
+    """Slack Webhook으로 릴리즈 알림 전송"""
+    message = {
+        "text": f":rocket: *PbbAuto v{version}* 배포 완료!\n"
+                f"• 변경사항: {changelog}\n"
+                f"• 릴리즈 링크: https://github.com/SungMinseok/PbbAuto/releases/tag/v{version}"
+    }
 
+    for name, url in webhooks.items():
+        if not url.startswith("https://hooks.slack.com/services/"):
+            continue
+        try:
+            response = requests.post(url, json=message)
+            if response.status_code == 200:
+                print(f"✅ Slack 알림 전송 성공 ({name})")
+            else:
+                print(f"⚠️ Slack 알림 실패 ({name}): {response.status_code}")
+        except Exception as e:
+            print(f"⚠️ Slack 알림 중 오류 ({name}): {e}")
 
 def main():
     print("=" * 60)
     print("PbbAuto 로컬 빌드 배포 스크립트")
     print("=" * 60)
     
-    # 버전 정보 확인
     version_info = load_version_info()
     if not version_info:
         return 1
-    
-    version = version_info.get('version')
-    changelog = version_info.get('changelog', [{}])[0].get('changes', ['자동 배포'])[0]
-    
+
+    version = version_info.get("version")
+    changelog = version_info.get("changelog", [{}])[0].get("changes", ["자동 배포"])[0]
+
     print(f"버전: {version}")
     print(f"변경사항: {changelog}")
-    
-    # ZIP 파일 확인
+
     zip_path = Path("dist/BundleEditor.zip")
     if not zip_path.exists():
         print("\n❌ dist/BundleEditor.zip 파일이 존재하지 않습니다!")
-        print("먼저 빌드 후 zip 파일을 생성하세요.")
         return 1
 
-    # 사용자 확인
     print(f"\n🚀 v{version} 릴리즈를 GitHub에 배포하시겠습니까?")
     response = input("계속하려면 'y'를 입력하세요: ").lower().strip()
     if response != 'y':
         print("배포 취소됨")
         return 0
 
-    # GitHub 토큰 확인
     token = get_github_token()
     if not token:
         return 1
 
+    token_data = load_token_data()
+    webhooks = {k: v for k, v in (token_data or {}).items() if k.startswith("webhook_")}
+
     try:
-        # GitHub 릴리즈 생성 및 업로드
         if not create_github_release(version, changelog, token, zip_path):
             return 1
 
         print("\n" + "=" * 60)
-        print("✅ 배포 완료!")
+        print("✅ GitHub 릴리즈 완료!")
         print("=" * 60)
         print(f"릴리즈 URL: https://github.com/SungMinseok/PbbAuto/releases/tag/v{version}")
-        print("사용자들이 이제 업데이트를 받을 수 있습니다.")
-        
+
+        # 🔔 Slack 알림 전송
+        if webhooks:
+            send_slack_notification(version, changelog, webhooks)
+        else:
+            print("⚠️ token.json에 Slack Webhook 정보가 없습니다.")
+
         return 0
 
     except Exception as e:
@@ -214,7 +243,6 @@ def main():
         return 1
 
     finally:
-        # 정리
         cleanup_files(zip_path)
 
 

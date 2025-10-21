@@ -1,0 +1,2 @@
+1.make_venv.bat로 가상환경 세팅
+2.deploy.bat
