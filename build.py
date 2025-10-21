@@ -188,13 +188,23 @@ def build_exe(spec_file):
     print("Starting EXE build...")
     print("=" * 60 + "\n")
 
+    # EXE가 이미 존재하면 빌드 건너뛰기
+    exe_path = 'dist/BundleEditor.exe'
+    zip_path = 'dist/BundleEditor.zip'
+    if os.path.exists(exe_path):
+        print(f"[SKIP] EXE already exists: {exe_path}")
+        return True
+    if os.path.exists(zip_path):
+        print(f"[SKIP] ZIP already exists: {zip_path}")
+        return True
+
     for folder in ['build', 'dist']:
         shutil.rmtree(folder, ignore_errors=True)
 
     try:
         cmd = ['pyinstaller', '--clean', spec_file]
         subprocess.run(cmd, check=True)
-        print("\n[DONE] Build successful! EXE located in: dist/Bundle Editor.exe")
+        print("\n[DONE] Build successful! EXE located in: dist/BundleEditor.exe")
         return True
     except Exception as e:
         print(f"\n[FAILED] Build failed: {e}")
@@ -206,6 +216,11 @@ def create_zip_package():
     exe_path = 'dist/BundleEditor.exe'
     version_json_path = 'version.json'
     zip_path = 'dist/BundleEditor.zip'
+    
+    # ZIP이 이미 존재하면 생성 건너뛰기
+    if os.path.exists(zip_path):
+        print(f"[SKIP] ZIP already exists: {zip_path}")
+        return True
     
     if not os.path.exists(exe_path):
         print(f"[ERROR] BundleEditor.exe not found at: {exe_path}")
