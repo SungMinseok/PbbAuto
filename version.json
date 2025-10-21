@@ -11,6 +11,13 @@
       ]
     },
     {
+      "version": "2025.10.22.0205",
+      "date": "2025-10-22",
+      "changes": [
+        "c:/pyenvs/pbbauto/Scripts/activate.bat"
+      ]
+    },
+    {
       "version": "2025.10.22.0152",
       "date": "2025-10-22",
       "changes": [
