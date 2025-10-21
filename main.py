@@ -1566,11 +1566,14 @@ class PbbAutoApp(QWidget):
         try:
             print(f"[스케줄] 명령어 실행: {command}")
             
+            # 스케줄러 실행 시 stop_flag 리셋 (중지 상태 해제)
+            self.command_processor.stop_flag = False
+            
             # 기존 명령어 처리기를 사용하여 실행
             self.command_processor.process_command(command.strip())
             
         except Exception as e:
-            print(f"[스케줄] 명령어 실행 실패: {e}")
+            print(f"❌ [스케줄] 명령어 실행 실패: {e}")
             raise
     
     def update_schedule_status(self):
