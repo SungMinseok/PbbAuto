@@ -12,7 +12,7 @@ echo.
 echo [0/6] Activate virtual environment...
 echo.
 
-set VENV1=C:\pyenvs\venv\Scripts\activate.bat
+set VENV1=C:\pyenvs\pbbauto\Scripts\activate.bat
 call "%VENV1%"
 echo.
 echo [1/6] Update version.json...
