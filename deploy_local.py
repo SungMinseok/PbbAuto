@@ -101,7 +101,7 @@ def create_github_release(version, changelog, token, zip_path):
     print(f"\n[2/4] GitHub 릴리즈 생성 중... ({version})")
     
     repo_owner = "SungMinseok"
-    repo_name = "BundleEditor"
+    repo_name = "PbbAuto"
     tag_name = f"{version}"
     
     # 릴리즈 데이터
@@ -166,7 +166,7 @@ def cleanup_files(zip_path):
     except Exception as e:
         print(f"⚠️  파일 정리 중 오류: {e}")
         
-def send_slack_notification(version, changelog, webhooks):
+def send_slack_notification(version, changelog, webhook_url):
     """Slack Webhook으로 릴리즈 알림 전송"""
     message = {
         "text": f":rocket: *BundleEditor {version}* 업데이트\n"
@@ -174,20 +174,21 @@ def send_slack_notification(version, changelog, webhooks):
                 #업데이트 방법 
                 f"• 업데이트 방법: 앱 재실행 또는 Help-업데이트 확인 버튼 클릭\n"
                 f"• 변경사항: {changelog}\n"
-                #f"• 릴리즈 링크: https://github.com/SungMinseok/BundleEditor/releases/tag/{version}"
+                #f"• 릴리즈 링크: https://github.com/SungMinseok/PbbAuto/releases/tag/{version}"
     }
 
-    for name, url in webhooks.items():
-        if not url.startswith("https://hooks.slack.com/services/"):
-            continue
-        try:
-            response = requests.post(url, json=message)
-            if response.status_code == 200:
-                print(f"✅ Slack 알림 전송 성공 ({name})")
-            else:
-                print(f"⚠️ Slack 알림 실패 ({name}): {response.status_code}")
-        except Exception as e:
-            print(f"⚠️ Slack 알림 중 오류 ({name}): {e}")
+    if not webhook_url.startswith("https://hooks.slack.com/services/"):
+        print("⚠️ 잘못된 Webhook URL 형식입니다.")
+        return
+    
+    try:
+        response = requests.post(webhook_url, json=message)
+        if response.status_code == 200:
+            print(f"✅ Slack 알림 전송 성공")
+        else:
+            print(f"⚠️ Slack 알림 실패: {response.status_code}")
+    except Exception as e:
+        print(f"⚠️ Slack 알림 중 오류: {e}")
 
 def choose_webhook(webhooks: dict) -> str:
     keys = list(webhooks.keys())
@@ -250,7 +251,7 @@ def main():
         print("\n" + "=" * 60)
         print("✅ GitHub 릴리즈 완료!")
         print("=" * 60)
-        print(f"릴리즈 URL: https://github.com/SungMinseok/BundleEditor/releases/tag/{version}")
+        print(f"릴리즈 URL: https://github.com/SungMinseok/PbbAuto/releases/tag/{version}")
 
         # 🔔 Slack 알림 전송
         if webhooks:
