@@ -597,6 +597,18 @@ class PbbAutoApp(QWidget):
         if hasattr(self.command_processor, 'state'):
             self.command_processor.state['stop_requested'] = True
         
+        # 테스트 결과 초기화 (중지 시)
+        if hasattr(self.command_processor, 'state'):
+            if 'test_results' in self.command_processor.state:
+                test_count = len(self.command_processor.state['test_results'])
+                if test_count > 0:
+                    print(f"Execute 루틴 중지: {test_count}개의 테스트 결과가 초기화됩니다.")
+                    self.command_processor.state['test_results'].clear()
+            
+            # 세션 정보 초기화
+            self.command_processor.state['test_session_start'] = None
+            self.command_processor.state['test_session_title'] = None
+        
         # 팝업 즉시 닫기 및 참조 제거
         if hasattr(self, 'popup') and self.popup:
             try:

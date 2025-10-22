@@ -173,6 +173,7 @@ class CommandPopup(QDialog):
         # parent_widget의 stop_execution도 호출하여 완전한 중지
         if self.parent_widget and hasattr(self.parent_widget, 'stop_execution'):
             self.parent_widget.stop_execution()
+        self.stopped = False
         self.close()
     
     def closeEvent(self, event):

@@ -1843,6 +1843,37 @@ class TestTextCommand(CommandBase):
     def description(self): 
         return "스크린샷에서 텍스트를 추출하여 기대값과 비교해 Pass/Fail 판별"
     
+    def _interruptible_sleep(self, duration, params, context=""):
+        """중지 플래그를 체크하면서 대기하는 함수
+        
+        Args:
+            duration: 대기 시간 (초)
+            params: 파라미터 딕셔너리 (processor_stop_flag 체크용)
+            context: 대기 컨텍스트 (디버깅용)
+        
+        Returns:
+            bool: True if interrupted (중지됨), False if completed (완료됨)
+        """
+        if duration <= 0:
+            return False
+            
+        # 0.1초 간격으로 중지 플래그 체크
+        check_interval = 0.1
+        total_slept = 0
+        
+        while total_slept < duration:
+            # params에서 CommandProcessor의 실시간 stop_flag 체크
+            processor = params.get('processor') if params else None
+            if processor and hasattr(processor, 'stop_flag') and processor.stop_flag:
+                print(f"⚠️ TestText {context} 중지됨 (경과시간: {total_slept:.1f}초/{duration}초)")
+                return True  # 중지됨
+            
+            sleep_time = min(check_interval, duration - total_slept)
+            time.sleep(sleep_time)
+            total_slept += sleep_time
+            
+        return False  # 완료됨
+    
     def create_ui(self):
         widget = QWidget()
         layout = QVBoxLayout()
@@ -2128,6 +2159,12 @@ class TestTextCommand(CommandBase):
         max_attempts = max_tries if repeat_mode else 1
         
         while current_try < max_attempts:
+            # 중지 플래그 체크 (각 반복 시작 시)
+            processor = params.get('processor') if params else None
+            if processor and hasattr(processor, 'stop_flag') and processor.stop_flag:
+                print(f"⚠️ testtext 중지됨 ({current_try}/{max_attempts}번째 시도)")
+                return
+            
             current_try += 1
             
             if repeat_mode:
@@ -2140,7 +2177,9 @@ class TestTextCommand(CommandBase):
                     print("스크린샷 촬영 실패")
                     if not repeat_mode:
                         return
-                    time.sleep(wait_interval)
+                    # 중지 플래그를 체크하면서 대기
+                    if self._interruptible_sleep(wait_interval, params, "screenshot retry"):
+                        return
                     continue
                 
                 # OCR 실행
@@ -2187,7 +2226,9 @@ class TestTextCommand(CommandBase):
                 else:
                     if repeat_mode and current_try < max_attempts:
                         print(f"✗ '{expected_text}' 텍스트를 찾지 못했습니다. {wait_interval}초 후 재시도...")
-                        time.sleep(wait_interval)
+                        # 중지 플래그를 체크하면서 대기
+                        if self._interruptible_sleep(wait_interval, params, f"retry wait ({current_try}/{max_attempts})"):
+                            return
                     else:
                         print(f"✗ {result}: '{expected_text}' 텍스트를 찾지 못했습니다. ({match_type})")
                         final_result = {
@@ -2215,7 +2256,9 @@ class TestTextCommand(CommandBase):
                     break
                 else:
                     print(f"오류 발생, {wait_interval}초 후 재시도...")
-                    time.sleep(wait_interval)
+                    # 중지 플래그를 체크하면서 대기
+                    if self._interruptible_sleep(wait_interval, params, f"error retry wait ({current_try}/{max_attempts})"):
+                        return
         
         # 최종 결과 처리
         if final_result:
