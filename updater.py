@@ -320,12 +320,20 @@ class UpdateInstaller:
                 f.write(f'del /f /q "{zip_path}"\n')
                 f.write('\n')
                 
-                if restart and getattr(sys, 'frozen', False):
+                if restart:
                     f.write('echo 새 버전 시작 중...\n')
                     f.write('timeout /t 1 /nobreak > nul\n')
-                    f.write(f'start "" "{current_exe}"\n')
+                    
+                    if getattr(sys, 'frozen', False):
+                        # EXE 모드: 직접 실행
+                        f.write(f'start "" "{current_exe}"\n')
+                    else:
+                        # 개발 모드: Python으로 실행
+                        python_exe = sys.executable
+                        main_py = os.path.join(current_dir, "main.py")
+                        f.write(f'start "" "{python_exe}" "{main_py}"\n')
                 else:
-                    f.write('echo 개발 모드: 자동 시작 건너뛰기\n')
+                    f.write('echo 재시작 건너뛰기\n')
                 
                 f.write('del "%~f0"\n')
 

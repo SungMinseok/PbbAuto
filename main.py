@@ -1880,17 +1880,27 @@ class PbbAutoApp(QWidget):
                                 self.log_error(f"다운로드 다이얼로그 닫기 중 오류: {e}")
                         
                         if success:
-                            # EXE인 경우 메시지박스 표시하지 않고 바로 종료
-                            if getattr(sys, 'frozen', False):
-                                self.log("업데이트 설치 완료. 앱 종료 중...")
-                                QTimer.singleShot(500, lambda: sys.exit(0))
-                            else:
-                                # 개발 모드에서만 메시지박스 표시
-                                QMessageBox.information(
-                                    self,
-                                    "업데이트 설치",
-                                    "업데이트가 다운로드되었습니다.\n(개발 모드: 배치 파일이 실행 중입니다)"
-                                )
+                            self.log("업데이트 설치 완료. 앱 종료 및 재시작 준비 중...")
+                            
+                            # Qt 애플리케이션 강제 종료
+                            def force_quit():
+                                try:
+                                    # 모든 윈도우 닫기
+                                    for widget in QApplication.topLevelWidgets():
+                                        widget.close()
+                                    
+                                    # Qt 앱 종료
+                                    QApplication.quit()
+                                    QApplication.processEvents()
+                                    
+                                    # 프로세스 강제 종료
+                                    import os
+                                    os._exit(0)
+                                except:
+                                    import os
+                                    os._exit(0)
+                            
+                            QTimer.singleShot(300, force_quit)
                     
                     # 메인 스레드에서 실행되도록 QTimer 사용
                     QTimer.singleShot(100, close_and_finish)
