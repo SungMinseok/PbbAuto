@@ -138,6 +138,7 @@ class UpdateDownloader:
 
     def download(self, url: str, progress_callback=None) -> Optional[str]:
         """ZIP 파일을 앱 폴더에 다운로드"""
+        download_path = None
         try:
             # 현재 실행 중인 앱 경로
             if getattr(sys, 'frozen', False):
@@ -150,16 +151,22 @@ class UpdateDownloader:
             self._log(f"다운로드 시작: {url}")
             self._log(f"저장 위치: {download_path}")
 
-            response = requests.get(url, stream=True, timeout=30)
+            # 타임아웃을 충분히 길게 설정 (연결: 30초, 읽기: 300초)
+            response = requests.get(url, stream=True, timeout=(30, 300))
             response.raise_for_status()
 
             total_size = int(response.headers.get('content-length', 0))
             downloaded = 0
+            
+            self._log(f"다운로드 크기: {total_size / (1024*1024):.2f} MB")
 
             with open(download_path, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     if self.cancel_flag:
                         self._log("다운로드 취소됨")
+                        # 취소 시 파일 삭제
+                        if os.path.exists(download_path):
+                            os.remove(download_path)
                         return None
                     if chunk:
                         f.write(chunk)
@@ -167,19 +174,43 @@ class UpdateDownloader:
                         if progress_callback:
                             progress_callback(downloaded, total_size)
 
-
             self._log(f"✅ 다운로드 완료: {download_path}")
-            # ZIP 저장 후 출처 태그 제거
+            self._log(f"다운로드된 크기: {downloaded / (1024*1024):.2f} MB")
+            
+            # 다운로드 크기 검증
+            if total_size > 0 and downloaded < total_size:
+                self._log_error(f"⚠️ 불완전한 다운로드: {downloaded}/{total_size} bytes")
+                if os.path.exists(download_path):
+                    os.remove(download_path)
+                return None
+            
+            # ZIP 저장 후 출처 태그 제거 (Windows Defender 차단 방지)
             try:
-                zone_file = zip_path + ":Zone.Identifier"
+                zone_file = download_path + ":Zone.Identifier"
                 if os.path.exists(zone_file):
                     os.remove(zone_file)
-            except Exception:
-                pass
+                    self._log("Zone.Identifier 제거 완료")
+            except Exception as e:
+                self._log(f"Zone.Identifier 제거 실패 (무시): {e}")
+            
             return download_path
 
+        except requests.exceptions.Timeout as e:
+            self._log_error(f"다운로드 타임아웃: {e}")
+            if download_path and os.path.exists(download_path):
+                os.remove(download_path)
+            return None
+        except requests.exceptions.RequestException as e:
+            self._log_error(f"네트워크 오류: {e}")
+            if download_path and os.path.exists(download_path):
+                os.remove(download_path)
+            return None
         except Exception as e:
             self._log_error(f"다운로드 실패: {e}")
+            import traceback
+            self._log_error(traceback.format_exc())
+            if download_path and os.path.exists(download_path):
+                os.remove(download_path)
             return None
 
     def cancel(self):

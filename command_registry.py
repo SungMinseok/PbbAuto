@@ -217,7 +217,7 @@ class PressCommand(CommandBase):
         # Keys input row
         keys_row = QHBoxLayout()
         self.press_input = QLineEdit()
-        self.press_input.setPlaceholderText('key or keys (e.g. ctrl+f)')
+        self.press_input.setPlaceholderText('key or keys (e.g. ctrl f, esc, etc.)')
         keys_row.addWidget(QLabel('Keys:'))
         keys_row.addWidget(self.press_input)
         layout.addLayout(keys_row)
@@ -1242,7 +1242,7 @@ class WaitUntilCommand(CommandBase):
         coord_mode_layout.addWidget(QLabel('좌표 모드:'))
         self.coord_mode_combo = QComboBox()
         self.coord_mode_combo.addItems(['스케일링 (기준해상도 기반)', '오프셋 (단순 위치이동)'])
-        self.coord_mode_combo.setCurrentIndex(0)  # 기본값: 스케일링
+        self.coord_mode_combo.setCurrentIndex(1)  # 기본값: 스케일링
         coord_mode_layout.addWidget(self.coord_mode_combo)
         layout.addLayout(coord_mode_layout)
         
@@ -3074,6 +3074,8 @@ class ExportResultCommand(CommandBase):
         """엑셀 리포트 생성 (스크린샷 이미지 포함)"""
         from openpyxl.drawing.image import Image as OpenpyxlImage
         import os
+        import pyautogui
+        from datetime import datetime
         
         # 이미지 삽입 여부 확인 (PIL 불필요 - openpyxl 직접 사용)
         insert_images = True
@@ -3082,13 +3084,14 @@ class ExportResultCommand(CommandBase):
         ws = wb.active
         ws.title = "테스트 결과"
         
-        # 헤더 설정 (스크린샷 컬럼 추가)
-        headers = ['번호', '제목', '결과', '기대값', '추출값', '매칭모드', '스크린샷 경로', '스크린샷']
+        # 헤더 설정 (전체 스크린샷 컬럼 추가)
+        headers = ['번호', '제목', '결과', '기대값', '추출값', '매칭모드', '스크린샷 경로', '스크린샷', '전체 스크린샷']
         for col, header in enumerate(headers, 1):
             ws.cell(row=1, column=col, value=header)
         
-        # 행 높이 설정 (스크린샷 표시를 위해)
+        # 행 높이 설정 (모든 행을 기본 높이로 고정)
         ws.row_dimensions[1].height = 25  # 헤더 행
+        default_row_height = 22  # 기본 셀 높이 (포인트 단위)
         
         # 데이터 입력 및 스크린샷 이미지 삽입
         for row, result in enumerate(test_results, 2):
@@ -3101,7 +3104,10 @@ class ExportResultCommand(CommandBase):
             ws.cell(row=row, column=6, value=result.get('match_mode', 'N/A'))
             ws.cell(row=row, column=7, value=result['screenshot_path'])
             
-            # 스크린샷 이미지 삽입 (원본 파일 직접 사용)
+            # 행 높이를 기본값으로 고정 (이미지 크기와 무관)
+            ws.row_dimensions[row].height = default_row_height
+            
+            # 스크린샷 이미지 삽입 (원본을 기본 셀 높이에 맞춤)
             screenshot_path = result['screenshot_path']
             
             if screenshot_path and os.path.exists(screenshot_path) and insert_images:
@@ -3109,19 +3115,25 @@ class ExportResultCommand(CommandBase):
                     # 원본 스크린샷 파일로 바로 openpyxl Image 객체 생성
                     img = OpenpyxlImage(screenshot_path)
                     
-                    # 이미지 크기 조정 (openpyxl에서 직접 처리)
-                    img.width = 300  # 픽셀 단위
-                    img.height = 200
+                    # 원본 이미지의 비율 계산
+                    original_width = img.width
+                    original_height = img.height
+                    aspect_ratio = original_width / original_height
+                    
+                    # 기본 셀 높이에 맞춰 이미지 크기 조정 (포인트 → 픽셀 변환: 1 포인트 ≈ 1.33 픽셀)
+                    target_height = default_row_height * 1.33  # 픽셀로 변환
+                    target_width = target_height * aspect_ratio
+                    
+                    # 이미지 크기를 기본 셀 높이에 맞춤 (원본은 유지되며, 표시만 축소)
+                    img.width = int(target_width)
+                    img.height = int(target_height)
                     
                     # 이미지를 스크린샷 컬럼(H열)에 배치
                     cell_ref = f'H{row}'
                     ws.add_image(img, cell_ref)
                     
-                    # 행 높이 조정
-                    ws.row_dimensions[row].height = 150  # 포인트 단위 (200픽셀 ≈ 150포인트)
-                    
                     ws.cell(row=row, column=8, value="이미지 삽입됨")
-                    print(f"  ✓ 이미지 삽입 성공: {result['title']}")
+                    print(f"  ✓ 이미지 삽입 성공: {result['title']} (원본: {original_width}x{original_height}, 표시: {int(target_width)}x{int(target_height)})")
                         
                 except Exception as e:
                     print(f"  ❌ 이미지 삽입 실패 ({result['title']}): {e}")
@@ -3131,6 +3143,77 @@ class ExportResultCommand(CommandBase):
                 ws.cell(row=row, column=8, value="이미지 제외됨")
             else:
                 ws.cell(row=row, column=8, value="스크린샷 없음")
+            
+            # Fail인 경우 해당 앱의 전체 화면 스크린샷 추가 캡처 및 삽입
+            if result['result'] == 'Fail' and insert_images:
+                try:
+                    import pygetwindow as gw
+                    
+                    # 타임스탬프 및 경로 설정
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                    full_screenshot_dir = os.path.dirname(excel_path)
+                    full_screenshot_filename = f"fail_app_fullscreen_{row-1}_{timestamp}.png"
+                    full_screenshot_path = os.path.join(full_screenshot_dir, full_screenshot_filename)
+                    
+                    # processor_state에서 현재 앱 정보 가져오기
+                    app_captured = False
+                    if processor_state and 'window_info' in processor_state:
+                        target_app = processor_state['window_info'].get('target_app', '')
+                        if target_app:
+                            # 해당 앱 윈도우 찾기
+                            windows = gw.getWindowsWithTitle(target_app)
+                            if windows:
+                                window = windows[0]
+                                # 앱 윈도우 영역만 캡처
+                                region = (window.left, window.top, window.width, window.height)
+                                app_screenshot = pyautogui.screenshot(region=region)
+                                app_screenshot.save(full_screenshot_path)
+                                app_captured = True
+                                print(f"  📸 Fail 항목 앱 전체 스크린샷 저장: {full_screenshot_filename} (앱: {target_app})")
+                    
+                    # 앱 정보가 없거나 윈도우를 찾지 못한 경우 전체 화면 캡처
+                    if not app_captured:
+                        full_screenshot = pyautogui.screenshot()
+                        full_screenshot.save(full_screenshot_path)
+                        print(f"  📸 Fail 항목 전체 화면 스크린샷 저장: {full_screenshot_filename} (앱 찾지 못함)")
+                    
+                    # 전체 스크린샷 이미지 삽입 (원본 해상도 유지)
+                    full_img = OpenpyxlImage(full_screenshot_path)
+                    
+                    # 원본 이미지 크기
+                    full_original_width = full_img.width
+                    full_original_height = full_img.height
+                    full_aspect_ratio = full_original_width / full_original_height
+                    
+                    # 기본 셀 높이에 맞춰 표시 크기만 조정 (원본은 유지)
+                    full_target_height = default_row_height * 1.33
+                    full_target_width = full_target_height * full_aspect_ratio
+                    
+                    # anchor를 사용하여 원본 해상도 유지
+                    from openpyxl.drawing.spreadsheet_drawing import AnchorMarker, TwoCellAnchor
+                    
+                    # 이미지 크기를 기본 셀 높이에 맞춤 (원본 해상도는 유지)
+                    full_img.width = int(full_target_width)
+                    full_img.height = int(full_target_height)
+                    
+                    # 이미지를 전체 스크린샷 컬럼(I열)에 배치
+                    cell_ref = f'I{row}'
+                    ws.add_image(full_img, cell_ref)
+                    
+                    ws.cell(row=row, column=9, value="앱 전체 캡처됨" if app_captured else "전체 화면 캡처됨")
+                    print(f"  ✓ 전체 스크린샷 삽입 성공: {result['title']} (원본: {full_original_width}x{full_original_height}, 표시: {int(full_target_width)}x{int(full_target_height)})")
+                    
+                except Exception as e:
+                    print(f"  ❌ 전체 스크린샷 삽입 실패 ({result['title']}): {e}")
+                    import traceback
+                    print(f"     상세 오류: {traceback.format_exc()}")
+                    ws.cell(row=row, column=9, value=f"캡처 실패: {str(e)[:20]}")
+            else:
+                # Pass이거나 이미지 삽입 안 하는 경우
+                if result['result'] == 'Pass':
+                    ws.cell(row=row, column=9, value="Pass (불필요)")
+                else:
+                    ws.cell(row=row, column=9, value="-")
         
         # 요약 시트 추가
         ws_summary = wb.create_sheet("요약")
@@ -3160,9 +3243,12 @@ class ExportResultCommand(CommandBase):
             max_length = 0
             column = col[0].column_letter
             
-            # 스크린샷 컬럼(H열)은 고정 너비 적용
+            # 스크린샷 컬럼(H열, I열)은 고정 너비 적용
             if column == 'H':
                 ws.column_dimensions[column].width = 40  # 스크린샷 컬럼은 넓게
+                continue
+            if column == 'I':
+                ws.column_dimensions[column].width = 40  # 전체 스크린샷 컬럼도 넓게
                 continue
                 
             for cell in col:

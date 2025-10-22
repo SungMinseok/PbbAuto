@@ -494,20 +494,26 @@ class PbbAutoApp(QWidget):
                     print(f"  {idx}. '{window.title}'")
                 if len(all_windows) > 10:
                     print(f"  ... 외 {len(all_windows) - 10}개 더")
-                print("명령어 실행을 건너뜁니다.")
-                continue  # 다음 반복으로
+                print("⚠️ 윈도우를 찾을 수 없지만 전체 화면 좌표로 명령어 실행을 계속합니다.")
+                print("   (runapp 명령어 등으로 앱 위치를 지정할 수 있습니다)")
 
-            for window in selected_windows:
+            # 윈도우가 있으면 해당 윈도우들에 대해, 없으면 한 번만 실행
+            windows_to_process = selected_windows if selected_windows else [None]
+            
+            for window in windows_to_process:
                 if self.stop_flag:
                     print("Stopped before window activation.")
                     return
-                try:
-                    window.activate()
-                except Exception as e:
-                    print(f"윈도우 '{window.title}' 활성화 중 오류 발생: {e}")
-
-                # 윈도우 좌표는 이제 각 명령어에서 동적으로 가져옴
-                print(f"현재 윈도우: {window.title}")
+                
+                # 윈도우가 있으면 활성화
+                if window:
+                    try:
+                        window.activate()
+                        print(f"현재 윈도우: {window.title}")
+                    except Exception as e:
+                        print(f"윈도우 '{window.title}' 활성화 중 오류 발생: {e}")
+                else:
+                    print("현재 윈도우: 없음 (전체 화면 좌표 사용)")
 
                 # Expand bundles into flat command list (only from checked items)
                 commands = []
