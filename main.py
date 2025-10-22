@@ -1863,82 +1863,69 @@ class PbbAutoApp(QWidget):
                 try:
                     self.log(f"업데이트 완료 콜백: success={success}")
                     
-                    # 다운로드 완료 상태 업데이트
-                    if success and progress_dialog:
+                    if success:
+                        self.log("업데이트 설치 완료. 즉시 종료 중...")
+                        
+                        # 다이얼로그 즉시 강제 종료
+                        if progress_dialog:
+                            try:
+                                progress_dialog.reject()  # close()보다 강력
+                                progress_dialog.deleteLater()
+                                QApplication.processEvents()
+                            except:
+                                pass
+                        
+                        # 모든 윈도우 즉시 닫기
                         try:
-                            progress_dialog.download_complete()
-                        except Exception as e:
-                            self.log_error(f"다운로드 완료 처리 중 오류: {e}")
+                            for widget in QApplication.topLevelWidgets():
+                                try:
+                                    widget.close()
+                                except:
+                                    pass
+                            QApplication.processEvents()
+                        except:
+                            pass
+                        
+                        # 프로세스 즉시 강제 종료 (지연 없음)
+                        import os
+                        try:
+                            QApplication.quit()
+                        except:
+                            pass
+                        
+                        # 최종 강제 종료
+                        os._exit(0)
                     
-                    # 다이얼로그 닫기 (약간의 지연을 둠)
-                    def close_and_finish():
+                    else:
+                        # 실패 처리
+                        self.log_error("업데이트가 실패했습니다.")
                         if progress_dialog:
                             try:
                                 progress_dialog.close()
-                                self.log("다운로드 다이얼로그 닫힘")
                             except Exception as e:
                                 self.log_error(f"다운로드 다이얼로그 닫기 중 오류: {e}")
                         
-                        if success:
-                            self.log("업데이트 설치 완료. 앱 종료 및 재시작 준비 중...")
-                            
-                            # Qt 애플리케이션 강제 종료
-                            def force_quit():
-                                try:
-                                    # 모든 윈도우 닫기
-                                    for widget in QApplication.topLevelWidgets():
-                                        widget.close()
-                                    
-                                    # Qt 앱 종료
-                                    QApplication.quit()
-                                    QApplication.processEvents()
-                                    
-                                    # 프로세스 강제 종료
-                                    import os
-                                    os._exit(0)
-                                except:
-                                    import os
-                                    os._exit(0)
-                            
-                            QTimer.singleShot(300, force_quit)
-                    
-                    # 메인 스레드에서 실행되도록 QTimer 사용
-                    QTimer.singleShot(100, close_and_finish)
+                        if not progress_dialog or not progress_dialog.cancelled:
+                            # 더 상세한 에러 메시지 표시
+                            error_msg = (
+                                "업데이트 설치에 실패했습니다.\n\n"
+                                "가능한 원인:\n"
+                                "• 파일 권한 문제 (관리자 권한으로 실행 시도)\n"
+                                "• 바이러스 백신 소프트웨어 간섭\n"
+                                "• 디스크 용량 부족\n"
+                                "• 네트워크 연결 문제\n\n"
+                                "자세한 내용은 logs 폴더의 로그 파일을 확인하세요."
+                            )
+                            QMessageBox.warning(
+                                self,
+                                "업데이트 실패",
+                                error_msg
+                            )
                 
                 except Exception as e:
                     self.log_error(f"업데이트 완료 콜백 실행 중 오류: {e}")
-                    if progress_dialog:
-                        try:
-                            progress_dialog.close()
-                        except:
-                            pass
-                
-                # 실패 처리는 별도로
-                if not success:
-                    # 업데이트 실패
-                    self.log_error("업데이트가 실패했습니다.")
-                    if progress_dialog:
-                        try:
-                            progress_dialog.close()
-                        except Exception as e:
-                            self.log_error(f"다운로드 다이얼로그 닫기 중 오류: {e}")
-                    
-                    if not progress_dialog or not progress_dialog.cancelled:
-                        # 더 상세한 에러 메시지 표시
-                        error_msg = (
-                            "업데이트 설치에 실패했습니다.\n\n"
-                            "가능한 원인:\n"
-                            "• 파일 권한 문제 (관리자 권한으로 실행 시도)\n"
-                            "• 바이러스 백신 소프트웨어 간섭\n"
-                            "• 디스크 용량 부족\n"
-                            "• 네트워크 연결 문제\n\n"
-                            "자세한 내용은 logs 폴더의 로그 파일을 확인하세요."
-                        )
-                        QMessageBox.warning(
-                            self,
-                            "업데이트 실패",
-                            error_msg
-                        )
+                    import os
+                    os._exit(0)  # 오류 발생 시에도 강제 종료
             
             # 다운로드 및 설치 시작
             try:
