@@ -10,7 +10,7 @@ import logger_setup
 
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
                              QProgressBar, QTextEdit, QDialogButtonBox, QMessageBox)
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QMetaObject, Q_ARG
 from PyQt5.QtGui import QFont
 import json
 import os
@@ -127,7 +127,11 @@ class UpdateNotificationDialog(QDialog):
 
 
 class DownloadProgressDialog(QDialog):
-    """다운로드 진행률 다이얼로그"""
+    """다운로드 진행률 다이얼로그 (스레드 안전)"""
+    
+    # 시그널 정의 (스레드 간 통신용)
+    progress_updated = pyqtSignal(int, int)  # received, total
+    download_completed = pyqtSignal()
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -140,6 +144,10 @@ class DownloadProgressDialog(QDialog):
         
         self.init_ui()
         self.cancelled = False
+        
+        # 시그널 연결 (메인 스레드에서 처리)
+        self.progress_updated.connect(self._update_progress_safe)
+        self.download_completed.connect(self._download_complete_safe)
     
     def init_ui(self):
         layout = QVBoxLayout()
@@ -173,7 +181,18 @@ class DownloadProgressDialog(QDialog):
     
     def update_progress(self, received, total):
         """
-        진행률 업데이트
+        진행률 업데이트 (스레드 안전 - 시그널 발생)
+        
+        Args:
+            received: 받은 바이트
+            total: 전체 바이트
+        """
+        # 시그널을 통해 메인 스레드에서 처리하도록 함
+        self.progress_updated.emit(received, total)
+    
+    def _update_progress_safe(self, received, total):
+        """
+        실제 진행률 업데이트 (메인 스레드에서 실행)
         
         Args:
             received: 받은 바이트
@@ -202,7 +221,12 @@ class DownloadProgressDialog(QDialog):
             self.reject()
     
     def download_complete(self):
-        """다운로드 완료"""
+        """다운로드 완료 (스레드 안전 - 시그널 발생)"""
+        # 시그널을 통해 메인 스레드에서 처리하도록 함
+        self.download_completed.emit()
+    
+    def _download_complete_safe(self):
+        """실제 다운로드 완료 처리 (메인 스레드에서 실행)"""
         self.status_label.setText("다운로드 완료! 설치 중...")
         self.progress_bar.setValue(100)
         self.cancel_btn.setEnabled(False)

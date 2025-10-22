@@ -249,47 +249,109 @@ class UpdateInstaller:
 
             # 압축 해제 폴더 (앱 폴더 내부)
             extract_dir = os.path.join(current_dir, "update_extract")
+            _log(f"압축 해제 폴더: {extract_dir}")
+            
             if os.path.exists(extract_dir):
+                _log("기존 압축 해제 폴더 삭제 중...")
                 shutil.rmtree(extract_dir, ignore_errors=True)
+            
+            _log("압축 해제 폴더 생성 중...")
             os.makedirs(extract_dir, exist_ok=True)
 
-            _log("ZIP 파일 압축 해제 중...")
-            time.sleep(0.5)  # Defender 안정화 대기
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(extract_dir)
-            _log("✅ 압축 해제 완료")
+            _log(f"ZIP 파일 압축 해제 중... ({zip_path})")
+            _log("Windows Defender 안정화 대기 중... (2초)")
+            time.sleep(2)  # Defender 안정화 대기 (증가)
+            
+            try:
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    file_list = zip_ref.namelist()
+                    _log(f"압축 파일 내 항목 수: {len(file_list)}")
+                    _log("압축 해제 시작...")
+                    zip_ref.extractall(extract_dir)
+                _log("✅ 압축 해제 완료")
+            except zipfile.BadZipFile as e:
+                _log_error(f"❌ 손상된 ZIP 파일: {e}")
+                raise
+            except Exception as e:
+                _log_error(f"❌ 압축 해제 실패: {e}")
+                import traceback
+                _log_error(traceback.format_exc())
+                raise
 
             # 배치 스크립트 생성
+            _log("배치 스크립트 생성 중...")
             bat_path = os.path.join(current_dir, "bundleeditor_update.bat")
+            exe_name = os.path.basename(current_exe)
+            
             with open(bat_path, 'w', encoding='utf-8-sig') as f:
                 f.write('@echo off\n')
                 f.write('chcp 65001 > nul\n')
                 f.write('echo BundleEditor 업데이트 중...\n')
-                f.write('timeout /t 2 /nobreak > nul\n')
+                
+                # EXE 모드인 경우에만 프로세스 종료 대기
+                if getattr(sys, 'frozen', False):
+                    f.write('echo 기존 프로세스 종료 대기 중...\n')
+                    f.write('set WAIT_COUNT=0\n')
+                    f.write('\n')
+                    
+                    # 프로세스가 완전히 종료될 때까지 대기 (최대 30초)
+                    f.write(':WAIT_PROCESS\n')
+                    f.write('set /A WAIT_COUNT+=1\n')
+                    f.write('if %WAIT_COUNT% GTR 30 (\n')
+                    f.write('    echo 타임아웃: 프로세스가 종료되지 않았습니다.\n')
+                    f.write('    goto UPDATE_FILES\n')
+                    f.write(')\n')
+                    f.write(f'tasklist /FI "IMAGENAME eq {exe_name}" 2>NUL | find /I /N "{exe_name}">NUL\n')
+                    f.write('if "%ERRORLEVEL%"=="0" (\n')
+                    f.write('    timeout /t 1 /nobreak > nul\n')
+                    f.write('    goto WAIT_PROCESS\n')
+                    f.write(')\n')
+                    f.write('\n')
+                    f.write('echo 프로세스 종료 완료.\n')
+                else:
+                    f.write('echo 개발 모드: 프로세스 대기 건너뛰기\n')
+                
+                f.write('\n')
+                f.write(':UPDATE_FILES\n')
+                f.write('echo 파일 업데이트 중...\n')
+                f.write('timeout /t 1 /nobreak > nul\n')
                 f.write(f'xcopy "{extract_dir}" "{current_dir}" /E /H /C /Y\n')
                 f.write(f'rd /s /q "{extract_dir}"\n')
                 f.write(f'del /f /q "{zip_path}"\n')
-                if restart:
+                f.write('\n')
+                
+                if restart and getattr(sys, 'frozen', False):
+                    f.write('echo 새 버전 시작 중...\n')
+                    f.write('timeout /t 1 /nobreak > nul\n')
                     f.write(f'start "" "{current_exe}"\n')
+                else:
+                    f.write('echo 개발 모드: 자동 시작 건너뛰기\n')
+                
                 f.write('del "%~f0"\n')
 
             _log(f"✅ 배치 스크립트 생성: {bat_path}")
 
             # CMD 실행 (안정형)
+            _log("업데이트 스크립트 실행 중...")
             cmd_line = f'start "" cmd.exe /c "{bat_path}"'
             subprocess.Popen(cmd_line, shell=True, cwd=current_dir)
             _log("✅ 업데이트 스크립트 실행 완료")
 
             # 앱 종료
             if restart and getattr(sys, 'frozen', False):
-                _log("앱 종료 중...")
-                time.sleep(2)
+                _log("앱 종료 중... (3초 후)")
+                time.sleep(3)
                 sys.exit(0)
+            else:
+                _log("⚠️ 개발 모드: 자동 재시작 안 함")
 
             return True
 
+        except zipfile.BadZipFile as e:
+            _log_error(f"❌ ZIP 파일 오류: {e}")
+            return False
         except Exception as e:
-            _log_error(f"업데이트 설치 실패: {e}")
+            _log_error(f"❌ 업데이트 설치 실패: {e}")
             import traceback
             _log_error(traceback.format_exc())
             return False
