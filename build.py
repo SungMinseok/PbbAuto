@@ -182,6 +182,39 @@ exe = EXE(
     return 'PbbAuto.spec'
 
 
+def force_remove_directory(path):
+    """강제로 디렉토리 삭제 (Windows 권한 문제 해결)"""
+    if not os.path.exists(path):
+        return
+    
+    try:
+        # 먼저 일반 삭제 시도
+        shutil.rmtree(path, ignore_errors=True)
+        
+        # 여전히 존재하면 attrib으로 읽기 전용 해제 후 재시도
+        if os.path.exists(path):
+            print(f"[INFO] Removing read-only attributes from {path}...")
+            try:
+                subprocess.run(f'attrib -R "{path}\\*" /S /D', shell=True, check=False, 
+                             capture_output=True, timeout=10)
+            except:
+                pass
+            
+            # 다시 삭제 시도
+            shutil.rmtree(path, ignore_errors=True)
+        
+        # 그래도 존재하면 rd 명령 사용
+        if os.path.exists(path):
+            print(f"[INFO] Using rd command to remove {path}...")
+            try:
+                subprocess.run(f'rd /s /q "{path}"', shell=True, check=False,
+                             capture_output=True, timeout=10)
+            except:
+                pass
+    except Exception as e:
+        print(f"[WARNING] Could not fully remove {path}: {e}")
+
+
 def build_exe(spec_file):
     """Run PyInstaller build"""
     print("\n" + "=" * 60)
@@ -198,8 +231,12 @@ def build_exe(spec_file):
         print(f"[SKIP] ZIP already exists: {zip_path}")
         return True
 
+    # 빌드 폴더 강제 삭제
+    print("[INFO] Cleaning build directories...")
     for folder in ['build', 'dist']:
-        shutil.rmtree(folder, ignore_errors=True)
+        force_remove_directory(folder)
+    
+    print("[INFO] Build directories cleaned.")
 
     try:
         cmd = ['pyinstaller', '--clean', spec_file]
