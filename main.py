@@ -1861,37 +1861,57 @@ class PbbAutoApp(QWidget):
             def completion_callback(success):
                 """완료 콜백 (메인 스레드에서 실행되도록 해야 함)"""
                 try:
-                    self.log(f"업데이트 완료 콜백: success={success}")
+                    self.log(f"[UPDATE] 완료 콜백 시작: success={success}")
                     
                     if success:
-                        self.log("업데이트 설치 완료. 즉시 종료 중...")
+                        self.log("[UPDATE] 업데이트 설치 완료. 종료 프로세스 시작...")
                         
                         # 다이얼로그 즉시 강제 종료
                         if progress_dialog:
                             try:
+                                self.log("[UPDATE] 다이얼로그 닫는 중...")
                                 progress_dialog.reject()  # close()보다 강력
                                 progress_dialog.deleteLater()
                                 QApplication.processEvents()
-                            except:
-                                pass
+                                self.log("[UPDATE] 다이얼로그 닫기 완료")
+                            except Exception as e:
+                                self.log(f"[UPDATE] 다이얼로그 닫기 오류: {e}")
                         
                         # 모든 윈도우 즉시 닫기
                         try:
+                            self.log("[UPDATE] 모든 윈도우 닫는 중...")
+                            widget_count = 0
                             for widget in QApplication.topLevelWidgets():
                                 try:
                                     widget.close()
+                                    widget_count += 1
                                 except:
                                     pass
                             QApplication.processEvents()
+                            self.log(f"[UPDATE] {widget_count}개 윈도우 닫기 완료")
+                        except Exception as e:
+                            self.log(f"[UPDATE] 윈도우 닫기 오류: {e}")
+                        
+                        # 프로세스 즉시 강제 종료
+                        import os
+                        import sys
+                        
+                        self.log(f"[UPDATE] 프로세스 종료 준비... frozen={getattr(sys, 'frozen', False)}")
+                        
+                        try:
+                            QApplication.quit()
+                            self.log("[UPDATE] QApplication.quit() 호출 완료")
+                        except Exception as e:
+                            self.log(f"[UPDATE] QApplication.quit() 오류: {e}")
+                        
+                        # 로그 파일 플러시
+                        try:
+                            sys.stdout.flush()
+                            sys.stderr.flush()
                         except:
                             pass
                         
-                        # 프로세스 즉시 강제 종료 (지연 없음)
-                        import os
-                        try:
-                            QApplication.quit()
-                        except:
-                            pass
+                        self.log("[UPDATE] os._exit(0) 호출...")
                         
                         # 최종 강제 종료
                         os._exit(0)

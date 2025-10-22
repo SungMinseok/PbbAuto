@@ -338,20 +338,37 @@ class UpdateInstaller:
                 f.write('del "%~f0"\n')
 
             _log(f"✅ 배치 스크립트 생성: {bat_path}")
+            
+            # 배치 파일 내용 로깅 (디버깅용 - 처음 10줄)
+            try:
+                with open(bat_path, 'r', encoding='utf-8-sig') as f:
+                    lines = f.readlines()[:10]
+                _log(f"[DEBUG] 배치 파일 시작 부분:\n{''.join(lines)}")
+            except Exception as e:
+                _log(f"[DEBUG] 배치 파일 읽기 실패: {e}")
 
-            # CMD 실행 (안정형)
-            _log("업데이트 스크립트 실행 중...")
-            cmd_line = f'start "" cmd.exe /c "{bat_path}"'
-            subprocess.Popen(cmd_line, shell=True, cwd=current_dir)
-            _log("✅ 업데이트 스크립트 실행 완료")
-
-            # 앱 종료
-            if restart and getattr(sys, 'frozen', False):
-                _log("앱 종료 중... (3초 후)")
-                time.sleep(3)
-                sys.exit(0)
-            else:
-                _log("⚠️ 개발 모드: 자동 재시작 안 함")
+            # CMD 실행 (분리된 프로세스로)
+            _log(f"[UPDATE] 업데이트 스크립트 실행 중... frozen={getattr(sys, 'frozen', False)}")
+            _log(f"[UPDATE] 배치 파일: {bat_path}")
+            _log(f"[UPDATE] 현재 프로세스 ID: {os.getpid()}")
+            
+            try:
+                # CREATE_NEW_CONSOLE | DETACHED_PROCESS 플래그 사용
+                subprocess.Popen(
+                    ['cmd.exe', '/c', bat_path],
+                    creationflags=subprocess.CREATE_NEW_CONSOLE | subprocess.DETACHED_PROCESS,
+                    close_fds=True,
+                    cwd=current_dir
+                )
+                _log("[UPDATE] ✅ 배치 프로세스 시작 완료")
+            except Exception as e:
+                _log(f"[UPDATE] ❌ 배치 프로세스 시작 실패: {e}")
+                import traceback
+                _log(f"[UPDATE] 상세: {traceback.format_exc()}")
+                raise
+            
+            _log("[UPDATE] ✅ 업데이트 스크립트 실행 완료")
+            _log("[UPDATE] ⚠️ 주의: 메인 앱이 종료되어야 업데이트가 진행됩니다.")
 
             return True
 
