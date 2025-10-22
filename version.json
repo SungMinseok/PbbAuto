@@ -1,8 +1,22 @@
 {
-  "version": "2025.10.22.0208",
-  "build_date": "2025-10-22",
+  "version": "2025.10.23.0224",
+  "build_date": "2025-10-23",
   "update_url": "https://api.github.com/repos/SungMinseok/PbbAuto/releases/latest",
   "changelog": [
+    {
+      "version": "2025.10.23.0224",
+      "date": "2025-10-23",
+      "changes": [
+        "c:/pyenvs/pbbauto/Scripts/activate.bat"
+      ]
+    },
+    {
+      "version": "2025.10.23.0222",
+      "date": "2025-10-23",
+      "changes": [
+        "c:/pyenvs/pbbauto/Scripts/activate.bat"
+      ]
+    },
     {
       "version": "2025.10.22.0208",
       "date": "2025-10-22",
