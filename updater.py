@@ -218,168 +218,80 @@ class UpdateDownloader:
         self.cancel_flag = True
 
 
+# 수정된 updater.py: BAT 파일 제거, 직접 압축 해제 및 EXE 교체 방식
+
+# 이하 생략된 공통 코드...
+
 class UpdateInstaller:
-    """설치 클래스"""
+    """설치 클래스: ZIP을 직접 압축 해제 후 기존 EXE 교체"""
 
     @staticmethod
     def install_update(zip_path: str, restart: bool = True, logger=None) -> bool:
-        def _log(msg):
-            if logger and hasattr(logger, 'log'):
-                logger.log(msg)
-            else:
-                print(msg)
-
-        def _log_error(msg):
-            if logger and hasattr(logger, 'log_error'):
-                logger.log_error(msg)
-            else:
-                print(msg)
+        def _log(msg): print(msg) if not logger else logger.log(msg)
+        def _log_error(msg): print(msg) if not logger else logger.log_error(msg)
 
         try:
             _log("업데이트 설치 시작...")
 
             # 실행 파일 경로
-            if getattr(sys, 'frozen', False):
-                current_exe = sys.executable
-            else:
-                current_exe = os.path.abspath("BundleEditor.exe")
-
+            current_exe = sys.executable if getattr(sys, 'frozen', False) else os.path.abspath("BundleEditor.exe")
             current_dir = os.path.dirname(current_exe)
-            _log(f"설치 디렉토리: {current_dir}")
-
-            # 압축 해제 폴더 (앱 폴더 내부)
             extract_dir = os.path.join(current_dir, "update_extract")
-            _log(f"압축 해제 폴더: {extract_dir}")
-            
+
+            # 기존 압축 해제 폴더 삭제 및 재생성
             if os.path.exists(extract_dir):
-                _log("기존 압축 해제 폴더 삭제 중...")
                 shutil.rmtree(extract_dir, ignore_errors=True)
-            
-            _log("압축 해제 폴더 생성 중...")
             os.makedirs(extract_dir, exist_ok=True)
 
-            _log(f"ZIP 파일 압축 해제 중... ({zip_path})")
-            _log("Windows Defender 안정화 대기 중... (2초)")
-            time.sleep(2)  # Defender 안정화 대기 (증가)
-            
-            try:
-                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                    file_list = zip_ref.namelist()
-                    _log(f"압축 파일 내 항목 수: {len(file_list)}")
-                    _log("압축 해제 시작...")
-                    zip_ref.extractall(extract_dir)
-                _log("✅ 압축 해제 완료")
-            except zipfile.BadZipFile as e:
-                _log_error(f"❌ 손상된 ZIP 파일: {e}")
-                raise
-            except Exception as e:
-                _log_error(f"❌ 압축 해제 실패: {e}")
-                import traceback
-                _log_error(traceback.format_exc())
-                raise
+            _log(f"ZIP 압축 해제 중... ({zip_path})")
+            time.sleep(2)  # Defender 안정화 대기
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(extract_dir)
 
-            # 배치 스크립트 생성
-            _log("배치 스크립트 생성 중...")
-            bat_path = os.path.join(current_dir, "bundleeditor_update.bat")
-            exe_name = os.path.basename(current_exe)
-            
-            with open(bat_path, 'w', encoding='utf-8-sig') as f:
-                f.write('@echo off\n')
-                f.write('chcp 65001 > nul\n')
-                f.write('echo BundleEditor 업데이트 중...\n')
-                
-                # EXE 모드인 경우에만 프로세스 종료 대기
+            _log("✅ 압축 해제 완료, 기존 프로세스 종료 시도")
+            try:
+                exe_name = os.path.basename(current_exe)
+                subprocess.call(['taskkill', '/F', '/IM', exe_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                time.sleep(1)
+            except Exception as e:
+                _log_error(f"⚠️ 프로세스 종료 실패 (무시): {e}")
+
+            # 파일 교체
+            _log("📂 파일 복사 중...")
+            for root, _, files in os.walk(extract_dir):
+                for file in files:
+                    src_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(src_path, extract_dir)
+                    dst_path = os.path.join(current_dir, rel_path)
+                    os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+                    shutil.copy2(src_path, dst_path)
+
+            _log("✅ 파일 복사 완료")
+
+            # 정리
+            os.remove(zip_path)
+            shutil.rmtree(extract_dir, ignore_errors=True)
+
+            # 재시작
+            if restart:
+                _log("🚀 새 버전 실행 중...")
                 if getattr(sys, 'frozen', False):
-                    f.write('echo 기존 프로세스 종료 대기 중...\n')
-                    f.write('set WAIT_COUNT=0\n')
-                    f.write('\n')
-                    
-                    # 프로세스가 완전히 종료될 때까지 대기 (최대 30초)
-                    f.write(':WAIT_PROCESS\n')
-                    f.write('set /A WAIT_COUNT+=1\n')
-                    f.write('if %WAIT_COUNT% GTR 30 (\n')
-                    f.write('    echo 타임아웃: 프로세스가 종료되지 않았습니다.\n')
-                    f.write('    goto UPDATE_FILES\n')
-                    f.write(')\n')
-                    f.write(f'tasklist /FI "IMAGENAME eq {exe_name}" 2>NUL | find /I /N "{exe_name}">NUL\n')
-                    f.write('if "%ERRORLEVEL%"=="0" (\n')
-                    f.write('    timeout /t 1 /nobreak > nul\n')
-                    f.write('    goto WAIT_PROCESS\n')
-                    f.write(')\n')
-                    f.write('\n')
-                    f.write('echo 프로세스 종료 완료.\n')
+                    subprocess.Popen([current_exe], cwd=current_dir)
                 else:
-                    f.write('echo 개발 모드: 프로세스 대기 건너뛰기\n')
-                
-                f.write('\n')
-                f.write(':UPDATE_FILES\n')
-                f.write('echo 파일 업데이트 중...\n')
-                f.write('timeout /t 1 /nobreak > nul\n')
-                f.write(f'xcopy "{extract_dir}" "{current_dir}" /E /H /C /Y\n')
-                f.write(f'rd /s /q "{extract_dir}"\n')
-                f.write(f'del /f /q "{zip_path}"\n')
-                f.write('\n')
-                
-                if restart:
-                    f.write('echo 새 버전 시작 중...\n')
-                    f.write('timeout /t 1 /nobreak > nul\n')
-                    
-                    if getattr(sys, 'frozen', False):
-                        # EXE 모드: 직접 실행
-                        f.write(f'start "" "{current_exe}"\n')
-                    else:
-                        # 개발 모드: Python으로 실행
-                        python_exe = sys.executable
-                        main_py = os.path.join(current_dir, "main.py")
-                        f.write(f'start "" "{python_exe}" "{main_py}"\n')
-                else:
-                    f.write('echo 재시작 건너뛰기\n')
-                
-                f.write('del "%~f0"\n')
-
-            _log(f"✅ 배치 스크립트 생성: {bat_path}")
-            
-            # 배치 파일 내용 로깅 (디버깅용 - 처음 10줄)
-            try:
-                with open(bat_path, 'r', encoding='utf-8-sig') as f:
-                    lines = f.readlines()[:10]
-                _log(f"[DEBUG] 배치 파일 시작 부분:\n{''.join(lines)}")
-            except Exception as e:
-                _log(f"[DEBUG] 배치 파일 읽기 실패: {e}")
-
-            # CMD 실행 (분리된 프로세스로)
-            _log(f"[UPDATE] 업데이트 스크립트 실행 중... frozen={getattr(sys, 'frozen', False)}")
-            _log(f"[UPDATE] 배치 파일: {bat_path}")
-            _log(f"[UPDATE] 현재 프로세스 ID: {os.getpid()}")
-            
-            try:
-                # CREATE_NEW_CONSOLE | DETACHED_PROCESS 플래그 사용
-                subprocess.Popen(
-                    ['cmd.exe', '/c', bat_path],
-                    creationflags=subprocess.CREATE_NEW_CONSOLE | subprocess.DETACHED_PROCESS,
-                    close_fds=True,
-                    cwd=current_dir
-                )
-                _log("[UPDATE] ✅ 배치 프로세스 시작 완료")
-            except Exception as e:
-                _log(f"[UPDATE] ❌ 배치 프로세스 시작 실패: {e}")
-                import traceback
-                _log(f"[UPDATE] 상세: {traceback.format_exc()}")
-                raise
-            
-            _log("[UPDATE] ✅ 업데이트 스크립트 실행 완료")
-            _log("[UPDATE] ⚠️ 주의: 메인 앱이 종료되어야 업데이트가 진행됩니다.")
+                    python_exe = sys.executable
+                    main_py = os.path.join(current_dir, "main.py")
+                    subprocess.Popen([python_exe, main_py], cwd=current_dir)
 
             return True
 
-        except zipfile.BadZipFile as e:
-            _log_error(f"❌ ZIP 파일 오류: {e}")
-            return False
         except Exception as e:
-            _log_error(f"❌ 업데이트 설치 실패: {e}")
+            _log_error(f"❌ 업데이트 실패: {e}")
             import traceback
             _log_error(traceback.format_exc())
             return False
+
+# 나머지 AutoUpdater, main 실행부는 유지
+
 
 
 class AutoUpdater:
