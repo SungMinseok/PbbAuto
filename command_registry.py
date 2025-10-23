@@ -8,7 +8,8 @@ import logger_setup
 
 from abc import ABC, abstractmethod
 from PyQt5.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QLabel, QLineEdit, 
-                             QSpinBox, QComboBox, QPushButton, QMessageBox, QCheckBox)
+                             QSpinBox, QComboBox, QPushButton, QMessageBox, QCheckBox,
+                             QRadioButton, QButtonGroup, QTextEdit, QFileDialog)
 from PyQt5.QtCore import Qt
 import time
 import os
@@ -322,32 +323,463 @@ class WriteCommand(CommandBase):
     
     def create_ui(self) -> QWidget:
         widget = QWidget()
-        layout = QHBoxLayout()
+        main_layout = QVBoxLayout()
+        
+        # 기본 텍스트 입력 행
+        text_row = QHBoxLayout()
         self.write_input = QLineEdit()
         self.write_input.setPlaceholderText('Text to type')
-        layout.addWidget(QLabel('Text:'))
-        layout.addWidget(self.write_input)
-        widget.setLayout(layout)
+        text_row.addWidget(QLabel('Text:'))
+        text_row.addWidget(self.write_input)
+        main_layout.addLayout(text_row)
+        
+        # 텍스트 파일 읽기 옵션
+        self.use_file_checkbox = QCheckBox('텍스트 파일 읽기')
+        self.use_file_checkbox.toggled.connect(self._toggle_file_options)
+        main_layout.addWidget(self.use_file_checkbox)
+        
+        # 파일 관련 위젯들을 담을 컨테이너
+        self.file_container = QWidget()
+        file_layout = QVBoxLayout()
+        file_layout.setContentsMargins(20, 0, 0, 0)
+        
+        # 파일 경로 선택
+        file_path_row = QHBoxLayout()
+        file_path_row.addWidget(QLabel('파일 경로:'))
+        self.file_path_input = QLineEdit()
+        self.file_path_input.setPlaceholderText('파일을 드래그앤드롭 하거나 버튼으로 선택')
+        self.file_path_input.setAcceptDrops(True)
+        self.file_path_input.dragEnterEvent = self._drag_enter_event
+        self.file_path_input.dropEvent = self._drop_event
+        file_path_row.addWidget(self.file_path_input)
+        self.browse_button = QPushButton('찾아보기')
+        self.browse_button.clicked.connect(self._browse_file)
+        file_path_row.addWidget(self.browse_button)
+        file_layout.addLayout(file_path_row)
+        
+        # 앞 스트링
+        prefix_row = QHBoxLayout()
+        prefix_row.addWidget(QLabel('앞 스트링:'))
+        self.prefix_input = QLineEdit()
+        self.prefix_input.setPlaceholderText('파일 내용 앞에 추가할 텍스트')
+        self.prefix_input.textChanged.connect(self._update_preview)
+        prefix_row.addWidget(self.prefix_input)
+        file_layout.addLayout(prefix_row)
+        
+        # 뒷 스트링
+        suffix_row = QHBoxLayout()
+        suffix_row.addWidget(QLabel('뒷 스트링:'))
+        self.suffix_input = QLineEdit()
+        self.suffix_input.setPlaceholderText('파일 내용 뒤에 추가할 텍스트')
+        self.suffix_input.textChanged.connect(self._update_preview)
+        suffix_row.addWidget(self.suffix_input)
+        file_layout.addLayout(suffix_row)
+        
+        # 입력 모드 선택
+        mode_row = QHBoxLayout()
+        mode_row.addWidget(QLabel('입력 모드:'))
+        self.file_mode_group = QButtonGroup()
+        self.file_mode_all = QRadioButton('한번에 입력 (모든 줄을 한번에)')
+        self.file_mode_iter = QRadioButton('반복마다 입력 (반복 n번째에 n번째 줄)')
+        self.file_mode_all.setChecked(True)
+        self.file_mode_group.addButton(self.file_mode_all)
+        self.file_mode_group.addButton(self.file_mode_iter)
+        mode_row.addWidget(self.file_mode_all)
+        mode_row.addWidget(self.file_mode_iter)
+        mode_row.addStretch()
+        file_layout.addLayout(mode_row)
+        
+        # 미리보기
+        preview_row = QVBoxLayout()
+        preview_row.addWidget(QLabel('전체 스트링 미리보기:'))
+        self.preview_text = QTextEdit()
+        self.preview_text.setReadOnly(True)
+        self.preview_text.setMaximumHeight(60)
+        self.file_path_input.textChanged.connect(self._update_preview)
+        preview_row.addWidget(self.preview_text)
+        file_layout.addLayout(preview_row)
+        
+        self.file_container.setLayout(file_layout)
+        self.file_container.setVisible(False)
+        main_layout.addWidget(self.file_container)
+        
+        # 난수 생성 옵션
+        self.use_random_checkbox = QCheckBox('난수 생성')
+        self.use_random_checkbox.toggled.connect(self._toggle_random_options)
+        main_layout.addWidget(self.use_random_checkbox)
+        
+        # 난수 옵션 컨테이너
+        self.random_container = QWidget()
+        random_layout = QVBoxLayout()
+        random_layout.setContentsMargins(20, 0, 0, 0)
+        
+        self.random_type_group = QButtonGroup()
+        self.random_pure = QRadioButton('진짜 난수 (완전 랜덤)')
+        self.random_date = QRadioButton('금일 날짜 포함 난수 (예: 1023ms1)')
+        self.random_pure.setChecked(True)
+        self.random_type_group.addButton(self.random_pure)
+        self.random_type_group.addButton(self.random_date)
+        random_layout.addWidget(self.random_pure)
+        random_layout.addWidget(self.random_date)
+        
+        # 난수 길이 설정
+        length_row = QHBoxLayout()
+        length_row.addWidget(QLabel('난수 길이:'))
+        self.random_length = QSpinBox()
+        self.random_length.setRange(1, 20)
+        self.random_length.setValue(6)
+        length_row.addWidget(self.random_length)
+        length_row.addWidget(QLabel('자리'))
+        length_row.addStretch()
+        random_layout.addLayout(length_row)
+        
+        self.random_container.setLayout(random_layout)
+        self.random_container.setVisible(False)
+        main_layout.addWidget(self.random_container)
+        
+        widget.setLayout(main_layout)
         return widget
     
+    def _drag_enter_event(self, event):
+        """드래그 이벤트 핸들러"""
+        if event.mimeData().hasUrls():
+            event.accept()
+        else:
+            event.ignore()
+    
+    def _drop_event(self, event):
+        """드롭 이벤트 핸들러"""
+        if event.mimeData().hasUrls():
+            url = event.mimeData().urls()[0]
+            file_path = url.toLocalFile()
+            self.file_path_input.setText(file_path)
+            event.accept()
+        else:
+            event.ignore()
+    
+    def _browse_file(self):
+        """파일 선택 다이얼로그"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            None,
+            "텍스트 파일 선택",
+            "",
+            "Text Files (*.txt);;All Files (*.*)"
+        )
+        if file_path:
+            self.file_path_input.setText(file_path)
+    
+    def _toggle_file_options(self, checked):
+        """파일 옵션 표시/숨김"""
+        self.file_container.setVisible(checked)
+        if checked:
+            self.write_input.setEnabled(False)
+            self.use_random_checkbox.setChecked(False)
+            self.use_random_checkbox.setEnabled(False)
+        else:
+            self.write_input.setEnabled(True)
+            self.use_random_checkbox.setEnabled(True)
+    
+    def _toggle_random_options(self, checked):
+        """난수 옵션 표시/숨김"""
+        self.random_container.setVisible(checked)
+        if checked:
+            self.write_input.setEnabled(False)
+            self.use_file_checkbox.setChecked(False)
+            self.use_file_checkbox.setEnabled(False)
+        else:
+            self.write_input.setEnabled(True)
+            self.use_file_checkbox.setEnabled(True)
+    
+    def _update_preview(self):
+        """미리보기 업데이트"""
+        if not self.use_file_checkbox.isChecked():
+            return
+            
+        file_path = self.file_path_input.text().strip()
+        prefix = self.prefix_input.text()
+        suffix = self.suffix_input.text()
+        
+        if not file_path or not os.path.exists(file_path):
+            self.preview_text.setPlainText('(파일을 선택하세요)')
+            return
+        
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                lines = [line.strip() for line in f.readlines() if line.strip()]
+            
+            if not lines:
+                self.preview_text.setPlainText('(파일이 비어있습니다)')
+                return
+            
+            # 첫 번째 줄로 미리보기 생성
+            preview = f"{prefix}{lines[0]}{suffix}"
+            total_lines = len(lines)
+            self.preview_text.setPlainText(f"{preview}\n\n(총 {total_lines}개 줄이 입력됩니다)")
+        except Exception as e:
+            self.preview_text.setPlainText(f'(파일 읽기 오류: {str(e)})')
+    
     def parse_params(self, params: list) -> dict:
-        return {'text': ' '.join(params)}
+        """파라미터 파싱
+        형식: write [text] 또는 
+              write --file [path] --prefix [prefix] --suffix [suffix] --mode [all|iter] 또는
+              write --random [type] --length [length]
+        """
+        # 전체 명령어 문자열 재구성
+        full_command = 'write ' + ' '.join(params)
+        
+        # 토큰 분할 (따옴표 고려)
+        def tokenize_command(command):
+            tokens = []
+            current_token = ""
+            in_quotes = False
+            
+            i = 0
+            while i < len(command):
+                char = command[i]
+                
+                if char == '"':
+                    in_quotes = not in_quotes
+                elif char == ' ' and not in_quotes:
+                    if current_token:
+                        tokens.append(current_token)
+                        current_token = ""
+                else:
+                    current_token += char
+                i += 1
+            
+            if current_token:
+                tokens.append(current_token)
+            
+            return tokens
+        
+        tokens = tokenize_command(full_command)
+        
+        # 'write' 명령어 제거
+        if tokens and tokens[0] == 'write':
+            tokens = tokens[1:]
+        
+        result = {
+            'text': '',
+            'use_file': False,
+            'file_path': '',
+            'prefix': '',
+            'suffix': '',
+            'file_mode': 'all',  # 'all' 또는 'iter'
+            'use_random': False,
+            'random_type': 'pure',
+            'random_length': 6
+        }
+        
+        i = 0
+        while i < len(tokens):
+            if tokens[i] == '--file':
+                result['use_file'] = True
+                if i + 1 < len(tokens):
+                    result['file_path'] = tokens[i + 1]
+                    i += 2
+                else:
+                    i += 1
+            elif tokens[i] == '--prefix':
+                if i + 1 < len(tokens):
+                    result['prefix'] = tokens[i + 1]
+                    i += 2
+                else:
+                    i += 1
+            elif tokens[i] == '--suffix':
+                if i + 1 < len(tokens):
+                    result['suffix'] = tokens[i + 1]
+                    i += 2
+                else:
+                    i += 1
+            elif tokens[i] == '--mode':
+                if i + 1 < len(tokens) and tokens[i + 1] in ['all', 'iter']:
+                    result['file_mode'] = tokens[i + 1]
+                    i += 2
+                else:
+                    i += 1
+            elif tokens[i] == '--random':
+                result['use_random'] = True
+                if i + 1 < len(tokens) and tokens[i + 1] in ['pure', 'date']:
+                    result['random_type'] = tokens[i + 1]
+                    i += 2
+                else:
+                    i += 1
+            elif tokens[i] == '--length':
+                if i + 1 < len(tokens):
+                    try:
+                        result['random_length'] = int(tokens[i + 1])
+                    except ValueError:
+                        pass
+                    i += 2
+                else:
+                    i += 1
+            else:
+                if not result['text']:
+                    result['text'] = tokens[i]
+                else:
+                    result['text'] += ' ' + tokens[i]
+                i += 1
+        
+        return result
     
     def set_ui_values(self, params: dict):
-        self.write_input.setText(params.get('text', ''))
+        """UI에 값 설정"""
+        if params.get('use_file', False):
+            self.use_file_checkbox.setChecked(True)
+            self.file_path_input.setText(params.get('file_path', ''))
+            self.prefix_input.setText(params.get('prefix', ''))
+            self.suffix_input.setText(params.get('suffix', ''))
+            # 파일 모드 설정
+            file_mode = params.get('file_mode', 'all')
+            if file_mode == 'iter':
+                self.file_mode_iter.setChecked(True)
+            else:
+                self.file_mode_all.setChecked(True)
+        elif params.get('use_random', False):
+            self.use_random_checkbox.setChecked(True)
+            random_type = params.get('random_type', 'pure')
+            if random_type == 'date':
+                self.random_date.setChecked(True)
+            else:
+                self.random_pure.setChecked(True)
+            self.random_length.setValue(params.get('random_length', 6))
+        else:
+            self.write_input.setText(params.get('text', ''))
     
     def get_command_string(self) -> str:
-        text = self.write_input.text().strip()
-        return f"write {text}" if text else 'write'
+        """명령어 문자열 생성"""
+        if self.use_file_checkbox.isChecked():
+            file_path = self.file_path_input.text().strip()
+            prefix = self.prefix_input.text()
+            suffix = self.suffix_input.text()
+            file_mode = 'iter' if self.file_mode_iter.isChecked() else 'all'
+            
+            cmd = f"write --file \"{file_path}\""
+            if prefix:
+                cmd += f" --prefix \"{prefix}\""
+            if suffix:
+                cmd += f" --suffix \"{suffix}\""
+            cmd += f" --mode {file_mode}"
+            return cmd
+        elif self.use_random_checkbox.isChecked():
+            random_type = 'date' if self.random_date.isChecked() else 'pure'
+            length = self.random_length.value()
+            return f"write --random {random_type} --length {length}"
+        else:
+            text = self.write_input.text().strip()
+            return f"write {text}" if text else 'write'
+    
+    def _generate_random_string(self, random_type: str, length: int) -> str:
+        """난수 문자열 생성"""
+        import random
+        import string
+        from datetime import datetime
+        
+        if random_type == 'date':
+            # 금일 날짜 포함 난수 (예: 1023ms1)
+            today = datetime.now()
+            date_part = today.strftime('%m%d')  # MMDD 형식
+            
+            # 남은 길이만큼 랜덤 문자 생성
+            remaining_length = max(1, length - len(date_part))
+            random_chars = ''.join(random.choices(string.ascii_lowercase + string.digits, k=remaining_length))
+            
+            # 날짜를 중간에 삽입
+            mid_point = len(random_chars) // 2
+            result = random_chars[:mid_point] + date_part + random_chars[mid_point:]
+            
+            return result
+        else:
+            # 진짜 난수
+            return ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
     
     def execute(self, params: dict, window_coords=None, processor_state=None):
-        text = params.get('text', '')
-        if text:
+        """명령어 실행"""
+        if params.get('use_file', False):
+            # 파일 모드
+            file_path = params.get('file_path', '')
+            prefix = params.get('prefix', '')
+            suffix = params.get('suffix', '')
+            file_mode = params.get('file_mode', 'all')
+            
+            if not file_path or not os.path.exists(file_path):
+                print(f'⚠️ 파일을 찾을 수 없습니다: {file_path}')
+                return
+            
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    lines = [line.strip() for line in f.readlines() if line.strip()]
+                
+                if file_mode == 'iter':
+                    # 반복마다 입력 모드
+                    # processor_state에서 현재 반복 횟수 가져오기
+                    iteration_count = 1
+                    if processor_state:
+                        iteration_count = processor_state.get('iteration_count', 1)
+                    
+                    # 현재 반복 횟수에 해당하는 줄 선택 (1-based)
+                    line_idx = iteration_count - 1
+                    
+                    if line_idx < len(lines):
+                        line = lines[line_idx]
+                        text = f"{prefix}{line}{suffix}"
+                        pyperclip.copy(text)
+                        pyd.keyDown('ctrl')
+                        pyd.press('v')
+                        pyd.keyUp('ctrl')
+                        print(f'✍️ 파일 입력 [반복 {iteration_count}] ({line_idx + 1}/{len(lines)}번째 줄): {text}')
+                    else:
+                        print(f'⚠️ 파일에 {iteration_count}번째 줄이 없습니다. (파일 총 {len(lines)}줄)')
+                        # 마지막 줄을 반복 입력
+                        if lines:
+                            line = lines[-1]
+                            text = f"{prefix}{line}{suffix}"
+                            pyperclip.copy(text)
+                            pyd.keyDown('ctrl')
+                            pyd.press('v')
+                            pyd.keyUp('ctrl')
+                            print(f'  → 마지막 줄 재사용: {text}')
+                else:
+                    # 한번에 입력 모드
+                    print(f'📄 파일에서 {len(lines)}개 줄 읽기: {file_path}')
+                    
+                    for idx, line in enumerate(lines, 1):
+                        text = f"{prefix}{line}{suffix}"
+                        pyperclip.copy(text)
+                        pyd.keyDown('ctrl')
+                        pyd.press('v')
+                        pyd.keyUp('ctrl')
+                        print(f'  [{idx}/{len(lines)}] 입력: {text}')
+                        
+                        # 마지막 줄이 아니면 짧은 대기
+                        if idx < len(lines):
+                            time.sleep(0.1)
+                    
+                    print(f'✅ 파일 내용 입력 완료')
+            except Exception as e:
+                print(f'❌ 파일 읽기 오류: {str(e)}')
+        
+        elif params.get('use_random', False):
+            # 난수 모드
+            random_type = params.get('random_type', 'pure')
+            length = params.get('random_length', 6)
+            
+            text = self._generate_random_string(random_type, length)
             pyperclip.copy(text)
             pyd.keyDown('ctrl')
             pyd.press('v')
             pyd.keyUp('ctrl')
-            print(f'Wrote text: {text}')
+            print(f'🎲 난수 입력 ({random_type}): {text}')
+        
+        else:
+            # 일반 텍스트 모드
+            text = params.get('text', '')
+            if text:
+                pyperclip.copy(text)
+                pyd.keyDown('ctrl')
+                pyd.press('v')
+                pyd.keyUp('ctrl')
+                print(f'✍️ 텍스트 입력: {text}')
 
 
 class WaitCommand(CommandBase):

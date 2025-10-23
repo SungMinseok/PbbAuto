@@ -23,6 +23,7 @@ class CommandProcessor:
             'expected_text': '',
             'last_result': 'N/A',
             'checklist_file': 'checklist.xlsx',
+            'iteration_count': 1,  # 현재 반복 횟수 (1-based)
             'test_results': [],  # 테스트 결과 저장용 리스트
             'test_session_start': None,  # 테스트 세션 시작 시간
             'test_session_title': None   # 테스트 세션 제목 (파일명 기반)

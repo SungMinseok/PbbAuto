@@ -471,6 +471,9 @@ class PbbAutoApp(QWidget):
                 print("Stopped before window selection.")
                 return
 
+            # 현재 반복 횟수를 state에 저장 (1-based)
+            self.command_processor.state['iteration_count'] = i + 1
+
             # 윈도우 선택
             selected_windows = []  # 매 루프마다 초기화
             if self.multi_checkbox.isChecked():
@@ -1904,16 +1907,47 @@ class PbbAutoApp(QWidget):
                         except Exception as e:
                             self.log(f"[UPDATE] QApplication.quit() 오류: {e}")
                         
-                        # 로그 파일 플러시
+                        # 스케줄러와 타이머 강제 중지
+                        self.log("[UPDATE] 스케줄러 및 타이머 강제 중지 중...")
                         try:
+                            # 스케줄러 중지
+                            if hasattr(self, 'scheduler_thread') and self.scheduler_thread:
+                                self.scheduler_thread.stop()
+                                self.scheduler_thread.wait(100)  # 최대 100ms 대기
+                        except Exception as e:
+                            self.log(f"[UPDATE] 스케줄러 중지 오류 (무시): {e}")
+                        
+                        try:
+                            # Keep-alive 중지
+                            if hasattr(self, 'keep_alive_thread') and self.keep_alive_thread:
+                                self.keep_alive_thread.stop()
+                                self.keep_alive_thread.wait(100)
+                        except Exception as e:
+                            self.log(f"[UPDATE] Keep-alive 중지 오류 (무시): {e}")
+                        
+                        # 로그 파일 플러시
+                        self.log("[UPDATE] 로그 플러시 중...")
+                        try:
+                            import logging
+                            for handler in logging.root.handlers[:]:
+                                try:
+                                    handler.flush()
+                                except:
+                                    pass
                             sys.stdout.flush()
                             sys.stderr.flush()
-                        except:
-                            pass
+                        except Exception as e:
+                            self.log(f"[UPDATE] 플러시 오류: {e}")
                         
-                        self.log("[UPDATE] os._exit(0) 호출...")
+                        self.log("[UPDATE] ========== 프로세스 강제 종료 ==========")
+                        
+                        # 배치 파일이 실행될 시간 확보 (1초 대기)
+                        import time
+                        self.log("[UPDATE] 배치 파일 실행 대기 중... (1초)")
+                        time.sleep(1)
                         
                         # 최종 강제 종료
+                        self.log("[UPDATE] 지금 종료!")
                         os._exit(0)
                     
                     else:
