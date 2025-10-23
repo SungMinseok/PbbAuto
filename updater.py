@@ -316,11 +316,13 @@ REM pause
 
             _log("✅ 배치 스크립트 생성 완료")
 
+            time.sleep(5)
             # 배치 파일 실행 (숨겨진 창에서)
             if restart:
                 _log("🚀 업데이트 설치 스크립트 실행 중...")
                 _log("⚠️ 잠시 후 프로그램이 자동으로 재시작됩니다.")
                 
+                #time.sleep(2)
                 # 수정된 코드 (CMD 창 노출):
                 os.startfile(bat_path)
                 # 현재 프로세스 종료 (배치 스크립트가 처리함)

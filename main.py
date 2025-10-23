@@ -40,6 +40,8 @@ class PbbAutoApp(QWidget):
     # 시그널 정의 (워커 스레드에서 메인 스레드로 통신)
     execution_finished = pyqtSignal()
     update_check_result = pyqtSignal(bool, object, str)  # has_update, info, error_msg
+    log_signal = pyqtSignal(str)  # 백그라운드 스레드에서 안전하게 로그 출력
+    log_error_signal = pyqtSignal(str)  # 백그라운드 스레드에서 안전하게 에러 로그 출력
     
     def __init__(self):
         super().__init__()
@@ -69,6 +71,8 @@ class PbbAutoApp(QWidget):
         # 시그널 연결
         self.execution_finished.connect(self.on_execution_finished)
         self.update_check_result.connect(self.on_update_check_result)
+        self.log_signal.connect(self._log_internal)
+        self.log_error_signal.connect(self._log_error_internal)
         
         # Settings 초기화
         self.settings = self.load_app_settings()
@@ -1384,7 +1388,7 @@ class PbbAutoApp(QWidget):
             self.setWindowTitle(f'{base_title} - [새 파일]')
 
     def log(self, message):
-        """로그 추가"""
+        """로그 추가 (스레드 안전)"""
         # Debug 모드 처리
         debug_mode = self.settings.get("debug_mode", False) if hasattr(self, 'settings') else False
         if not debug_mode and "[DEBUG]" in message:
@@ -1393,6 +1397,16 @@ class PbbAutoApp(QWidget):
         from datetime import datetime
         timestamp = datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
         msg_with_time = f"{timestamp} {message}"
+        
+        # 메인 스레드에서 실행 중인지 확인
+        if threading.current_thread() is threading.main_thread():
+            self._log_internal(msg_with_time)
+        else:
+            # 백그라운드 스레드에서 호출된 경우 시그널을 통해 메인 스레드로 전달
+            self.log_signal.emit(msg_with_time)
+    
+    def _log_internal(self, msg_with_time):
+        """실제 로그 출력 (메인 스레드에서만 호출)"""
         self.log_lines.append(msg_with_time)
         self.log_box.append(msg_with_time)
 
@@ -1405,7 +1419,7 @@ class PbbAutoApp(QWidget):
         self.log_box.ensureCursorVisible()
 
     def log_error(self, message):
-        """에러 로그 추가 (빨간색)"""
+        """에러 로그 추가 (빨간색, 스레드 안전)"""
         # Debug 모드 처리
         debug_mode = self.settings.get("debug_mode", False) if hasattr(self, 'settings') else False
         if not debug_mode and "[DEBUG]" in message:
@@ -1414,6 +1428,16 @@ class PbbAutoApp(QWidget):
         from datetime import datetime
         timestamp = datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
         msg_with_time = f"{timestamp} {message}"
+        
+        # 메인 스레드에서 실행 중인지 확인
+        if threading.current_thread() is threading.main_thread():
+            self._log_error_internal(msg_with_time)
+        else:
+            # 백그라운드 스레드에서 호출된 경우 시그널을 통해 메인 스레드로 전달
+            self.log_error_signal.emit(msg_with_time)
+    
+    def _log_error_internal(self, msg_with_time):
+        """실제 에러 로그 출력 (메인 스레드에서만 호출)"""
         self.log_lines.append(msg_with_time)
         self.log_box.append(f'<span style="color:red;">{msg_with_time}</span>')
         print(msg_with_time)
