@@ -107,48 +107,42 @@ def create_github_release(version, changelog, token, zip_path):
     # 1. changelog.txt 파일 처리
     changelog_file_path = "changelog.txt"
     changelog_content = ""
+
+    print(f"\n========================================================")
     
     if os.path.exists(changelog_file_path):
-        # 파일이 존재하면 내용을 읽습니다.
-        print(f"'{changelog_file_path}' 파일에서 변경사항을 읽는 중...")
-        with open(changelog_file_path, 'r', encoding='utf-8') as f:
-            changelog_content = f.read()
+        # 파일이 존재하면 사용자에게 편집 후 저장을 안내합니다.
+        print(f"✅ '{changelog_file_path}' 파일이 존재합니다.")
+        print("    -> 파일을 열어 내용을 **작성 및 저장** 후,")
+        print("    -> 이 **콘솔 창으로 돌아와 엔터(Enter) 키**를 누르세요.")
+        
     else:
-        # 파일이 없으면 사용자에게 입력을 받아 파일을 생성합니다.
-        print(f"'{changelog_file_path}' 파일이 존재하지 않습니다. 새로 생성합니다.")
-        print("변경사항을 입력하세요 (입력 후 엔터를 누르고, 다음 줄에 내용을 작성하여 저장을 원하는 시점에 'EOF'를 입력하고 엔터를 누르세요.):")
-        
-        user_input_lines = []
-        while True:
-            try:
-                line = input()
-                if line.strip().upper() == 'EOF':
-                    break
-                user_input_lines.append(line)
-            except EOFError:
-                # Ctrl+D (Unix) 또는 Ctrl+Z (Windows) 처리
-                break
-            except KeyboardInterrupt:
-                # Ctrl+C 처리
-                print("\n작업이 중단되었습니다.")
-                return # 함수 종료
-        
-        changelog_content = "\n".join(user_input_lines).strip()
-        
-        # 입력된 내용을 파일에 저장합니다.
-        with open(changelog_file_path, 'w', encoding='utf-8') as f:
-            f.write(changelog_content)
-        print(f"'{changelog_file_path}' 파일이 성공적으로 생성 및 저장되었습니다.")
+        # 파일이 없으면 생성 안내를 합니다. (실제 파일은 입력 후 저장됨)
+        print(f"⚠️ '{changelog_file_path}' 파일이 존재하지 않습니다.")
+        print("    -> 파일을 **새로 생성**하여 내용을 **작성 및 저장** 후,")
+        print("    -> 이 **콘솔 창으로 돌아와 엔터(Enter) 키**를 누르세요.")
+    
+    os.startfile(changelog_file_path)
+    # 사용자에게 엔터 입력을 기다립니다.
+    input("👉 준비가 되면 엔터(Enter)를 누르세요...")
 
+    try:
+        # 파일 내용을 읽습니다.
+        with open(changelog_file_path, 'r', encoding='utf-8') as f:
+            changelog_content = f.read().strip()
+            print(f"✅ '{changelog_file_path}' 파일 내용 읽기 완료.")
+    except FileNotFoundError:
+        print(f"❌ 오류: 파일을 작성 및 저장하지 않았거나, 파일 경로를 찾을 수 없습니다.")
+        return # 파일이 없으면 함수 종료
 
-    # 2. 릴리즈 데이터 구성 (변경사항을 파일 내용으로 대체)
+    print("========================================================\n")
+
+    # 2. 릴리즈 데이터 구성
     if not changelog_content:
-        # 파일 내용이 비어있을 경우 기본 메시지를 사용하거나 사용자에게 알릴 수 있습니다.
-        body_content = "**변경사항이 없습니다.**"
-        print("경고: changelog.txt 파일 내용이 비어있습니다.")
+        body_content = "**변경사항이 비어있습니다.**"
+        print("⚠️ 경고: changelog.txt 파일 내용이 비어있습니다. 빈 내용으로 릴리즈가 생성됩니다.")
     else:
         # 파일 내용을 사용하여 body를 구성합니다.
-        # Markdown 포맷으로 헤더를 추가합니다.
         body_content = f"## 변경사항\n\n{changelog_content}\n\n**자체 업데이트 가능 버전**"
     
     release_data = {
