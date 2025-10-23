@@ -98,10 +98,10 @@ class UpdateChecker:
                     'published_at': release_data.get('published_at', '')
                 }
 
-                self._log(f"✅ 새로운 버전 발견: {latest_version}")
+                self._log(f"새로운 버전 발견: {latest_version}")
                 return True, update_info, None
             else:
-                self._log("✅ 현재 최신 버전을 사용 중입니다.")
+                self._log("현재 최신 버전을 사용 중입니다.")
                 return False, None, None
 
         except requests.exceptions.RequestException as e:
@@ -260,6 +260,7 @@ chcp 65001 > nul
 echo ========================================
 echo Bundle Editor Update Installation...
 echo ========================================
+
 echo.
 
 REM Wait for process termination
@@ -268,6 +269,13 @@ ping 127.0.0.1 -n 3 > nul REM Wait 2 seconds + a
 taskkill /F /IM "{exe_name}" > nul 2>&1
 ping 127.0.0.1 -n 2 > nul REM Wait 1 second + a
 echo ✓ Process terminated
+
+echo.
+
+REM PROCESS RELEASE WAIT (5 seconds)
+echo [1.5/5] Waiting for process to release file handles (5s)...
+ping 127.0.0.1 -n 6 > nul REM Wait 5 seconds + a
+echo ✓ Wait complete
 echo.
 
 REM File copy
@@ -275,10 +283,11 @@ echo [2/5] Copying files...
 xcopy /E /I /H /Y "{extract_dir}\\*" "{current_dir}\\" > nul
 if %ERRORLEVEL% NEQ 0 (
     echo ❌ File copy failed
-    pause
+    pause  REM <--- 복사 실패 시 멈춤
     exit /b 1
 )
 echo ✓ Files copied
+REM pause  REM <--- 복사 성공 시 멈춤
 echo.
 
 REM Cleanup
@@ -298,6 +307,7 @@ echo.
 REM Self-delete batch file
 echo [5/5] Cleaning up installer script...
 ping 127.0.0.1 -n 3 > nul REM Wait 2 seconds + a
+REM pause
 (goto) 2>nul & del "%~f0"
 """
 
@@ -311,23 +321,10 @@ ping 127.0.0.1 -n 3 > nul REM Wait 2 seconds + a
                 _log("🚀 업데이트 설치 스크립트 실행 중...")
                 _log("⚠️ 잠시 후 프로그램이 자동으로 재시작됩니다.")
                 
-                # CREATE_NO_WINDOW 플래그로 콘솔 창 숨김
-                CREATE_NO_WINDOW = 0x08000000
-                SW_HIDE = 0
-                STARTF_USESHOWWINDOW = 0x00000001
-                
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= STARTF_USESHOWWINDOW
-                startupinfo.wShowWindow = SW_HIDE
-                
-                CREATE_NO_WINDOW = subprocess.CREATE_NO_WINDOW
-
-                subprocess.Popen(
-                    ["cmd.exe", "/c", "chcp 65001 &&", bat_path],
-                    cwd=current_dir
-                )
+                # 수정된 코드 (CMD 창 노출):
+                os.startfile(bat_path)
                 # 현재 프로세스 종료 (배치 스크립트가 처리함)
-                time.sleep(1)
+                time.sleep(3)
                 sys.exit(0)
 
             return True
@@ -385,6 +382,32 @@ class AutoUpdater:
 
         threading.Thread(target=check_thread, daemon=True).start()
 
+    def check_updates_sync(self) -> Tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
+        """
+        [동기적] 업데이트를 확인하고 결과를 반환합니다.
+        메인 스레드에서 실행되어야 하며, GUI를 잠시 멈출 수 있습니다.
+        """
+        self._log("[동기] 서버에서 업데이트 확인 시작...")
+        
+        try:
+            # UpdateChecker의 핵심 로직을 직접 호출합니다. (네트워크 I/O 발생)
+            has_update, info, error_msg = self.checker.check_for_updates()
+            
+            self.update_available = has_update
+            self.latest_info = info
+            
+            if has_update:
+                self._log(f"[동기] 새 버전 발견: {info['version']}")
+            else:
+                self._log("[동기] 현재 최신 버전입니다.")
+                
+            return has_update, info, error_msg
+            
+        except Exception as e:
+            error_msg = f"업데이트 확인 중 오류 발생: {e}"
+            self._log_error(error_msg)
+            return False, None, error_msg
+
     def download_and_install(self, progress_callback=None, completion_callback=None):
         """다운로드 및 설치"""
         def install_thread():
@@ -412,8 +435,15 @@ class AutoUpdater:
                     return
 
                 self._log("다운로드 완료, 설치 시작...")
+                    
+                # install_update가 성공적으로 실행되면 sys.exit(0)을 호출하고 프로세스를 종료합니다.
+                # 만약 False를 반환하거나 예외가 발생하면 아래 completion_callback이 호출됩니다.
                 success = UpdateInstaller.install_update(zip_path, restart=True, logger=self.main_app)
+                
+                # NOTE: 만약 install_update 내부에서 sys.exit(0)에 도달하면 이 아래 코드는 실행되지 않습니다.
+                
                 if completion_callback:
+                    # sys.exit(0)에 도달하지 못하고 실패했을 때만 콜백을 호출하여 앱에 알림
                     completion_callback(success)
 
             except Exception as e:

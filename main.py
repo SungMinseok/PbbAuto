@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QL
                              QTableWidgetItem, QHeaderView, QTabWidget, QTextEdit,
                              QDateEdit, QTimeEdit, QDialogButtonBox, QSpinBox)
 from PyQt5.QtCore import QTimer, Qt, QDate, QTime, pyqtSignal
-from PyQt5.QtGui import QIcon
+from PyQt5.QtGui import QIcon, QFont, QTextCursor
         # 분리된 모듈들 import (print 오버라이드 후)
 from constants import current_dir, bundles_dir
 from utils import (load_config, save_config, auto_detect_tesseract, take_screenshot, 
@@ -151,6 +151,10 @@ class PbbAutoApp(QWidget):
         #self.log_box.setMaximumBlockCount(3)
         self.log_box.setMaximumHeight(90)
         self.log_box.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        # ✅ 핵심 해결책: 고정폭 폰트 설정
+        font = QFont("Consolas" if sys.platform == "win32" else "Monospace")
+        font.setPointSize(9) # 폰트 크기 조정 가능
+        self.log_box.setFont(font)
         self.log_box.setLineWrapMode(QTextEdit.NoWrap)
         main_layout.addWidget(self.log_box)
         self.log_lines = []
@@ -164,29 +168,35 @@ class PbbAutoApp(QWidget):
     def _init_window_section(self, main_layout):
         """윈도우 선택 섹션 초기화"""
         self.prefix_input = QLineEdit(self)
-        self.prefix_input.setPlaceholderText("Window Title Prefix")
-        self.refresh_button = QPushButton('Refresh', self)
+        self.prefix_input.setReadOnly(True)
+        self.prefix_input.setFixedWidth(1)
+        #self.prefix_input.setPlaceholderText("Window Title Prefix")
+        self.refresh_label = QLabel('Current Window: ', self)
+        self.refresh_label.setFixedWidth(100)
+        self.refresh_button = QPushButton('🔄️', self)
+        self.refresh_button.setFixedWidth(25)
         self.refresh_button.clicked.connect(self.refresh_window_list)
         self.window_dropdown = QComboBox(self)
-        self.window_dropdown.setFixedWidth(200)
-        self.multi_checkbox = QCheckBox('Multi', self)
-        self.multi_align_button = QPushButton('Align', self)
-        self.multi_align_button.clicked.connect(self.align_windows)
-        self.mouse_track_button = QPushButton('Mouse OFF', self)
-        self.mouse_track_button.clicked.connect(self.toggle_mouse_tracking_button)
+        #self.window_dropdown.setFixedWidth(200)
+        #self.multi_checkbox = QCheckBox('Multi', self)
+        #self.multi_align_button = QPushButton('Align', self)
+        #self.multi_align_button.clicked.connect(self.align_windows)
+        #self.mouse_track_button = QPushButton('Mouse OFF', self)
+        #self.mouse_track_button.clicked.connect(self.toggle_mouse_tracking_button)
         self.coord_label = QLabel('Coordinates: (x, y, w, h)', self)
 
         # Layout
         refresh_layout = QHBoxLayout()
+        refresh_layout.addWidget(self.refresh_label)
         refresh_layout.addWidget(self.prefix_input)
         refresh_layout.addWidget(self.refresh_button)
         refresh_layout.addWidget(self.window_dropdown)
-        refresh_layout.addWidget(self.multi_checkbox)
-        refresh_layout.addWidget(self.multi_align_button)
-        refresh_layout.addWidget(self.mouse_track_button)
+        #refresh_layout.addWidget(self.multi_checkbox)
+        #refresh_layout.addWidget(self.multi_align_button)
+        #refresh_layout.addWidget(self.mouse_track_button)
 
         main_layout.addLayout(refresh_layout)
-        main_layout.addWidget(self.coord_label)
+        #main_layout.addWidget(self.coord_label)
 
     def _init_command_section(self, main_layout):
         """명령어 리스트 섹션 초기화"""
@@ -1385,9 +1395,14 @@ class PbbAutoApp(QWidget):
         msg_with_time = f"{timestamp} {message}"
         self.log_lines.append(msg_with_time)
         self.log_box.append(msg_with_time)
+
+        #log_box스크롤 맨 아래로 내
         print(msg_with_time)
         if len(self.log_lines) > 3:
             self.log_lines.pop(0)
+
+        self.log_box.moveCursor(QTextCursor.End)
+        self.log_box.ensureCursorVisible()
 
     def log_error(self, message):
         """에러 로그 추가 (빨간색)"""
@@ -1405,6 +1420,8 @@ class PbbAutoApp(QWidget):
         if len(self.log_lines) > 3:
             self.log_lines.pop(0)
 
+        self.log_box.moveCursor(QTextCursor.End)
+        self.log_box.ensureCursorVisible()
     def init_mouse_tracker(self):
         """마우스 위치 실시간 추적 초기화"""
         self.mouse_tracking_enabled = False  # 초기 상태는 OFF
@@ -1707,7 +1724,8 @@ class PbbAutoApp(QWidget):
                 self.log("시작 시 업데이트 확인: 최신 버전 사용 중")
         
         self.log("시작 시 업데이트 확인 중...")
-        self.auto_updater.check_updates_async(callback)
+        has_update, info, error_msg = self.auto_updater.check_updates_sync()
+        callback(has_update, info, error_msg)
     
     def _show_auto_update_dialog(self, info):
         """자동 업데이트 다이얼로그 표시 (메인 스레드에서 실행)"""
@@ -1729,12 +1747,12 @@ class PbbAutoApp(QWidget):
                 
                 if result == QDialog.Accepted:
                     # 지금 업데이트 선택
-                    self.log(f"✅ 자동 업데이트 시작: 버전 {info['version']}")
+                    self.log(f"자동 업데이트 시작: 버전 {info['version']}")
                     self.start_update_download(info)
                 elif result == 2:  # Skip
-                    self.log(f"⏭️ 자동 업데이트 건너뛰기: 버전 {info['version']}")
+                    self.log(f"자동 업데이트 건너뛰기: 버전 {info['version']}")
                 else:
-                    self.log("❌ 자동 업데이트 취소됨")
+                    self.log("자동 업데이트 취소됨")
                     
             except Exception as e:
                 self.log_error(f"자동 업데이트 다이얼로그 표시 중 오류: {e}")
@@ -2530,6 +2548,9 @@ if __name__ == '__main__':
     
     try:
         app = QApplication(sys.argv)
+        
+        # QTextCursor 메타타입 등록 (멀티스레드 시그널/슬롯 사용을 위해)
+        #qRegisterMetaType('QTextCursor')
         
         # Qt 애플리케이션 내부 예외도 처리하기 위한 커스텀 이벤트 필터
         def qt_exception_handler(exc_type, exc_value, exc_traceback):
