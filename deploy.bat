@@ -45,12 +45,11 @@ echo.
 echo [3/6] Check local changes...
 git status
 
+
+REM 커밋 메시지 그냥 자동으로 버전 메시지 넣기
 echo.
 echo [4/6] Commit changes...
-set /p COMMIT_MSG="Commit message (Enter=Default): "
-if "%COMMIT_MSG%"=="" (
-    set COMMIT_MSG=Local Build v%VERSION% - %CHANGELOG_MSG%
-)
+set COMMIT_MSG=Local Build %VERSION%
 
 git add .
 git commit -m "%COMMIT_MSG%"
