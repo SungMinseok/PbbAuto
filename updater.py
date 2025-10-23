@@ -223,7 +223,7 @@ class UpdateDownloader:
 # 이하 생략된 공통 코드...
 
 class UpdateInstaller:
-    """설치 클래스: ZIP을 직접 압축 해제 후 기존 EXE 교체"""
+    """설치 클래스: 배치 스크립트를 통한 EXE 교체"""
 
     @staticmethod
     def install_update(zip_path: str, restart: bool = True, logger=None) -> bool:
@@ -237,6 +237,7 @@ class UpdateInstaller:
             current_exe = sys.executable if getattr(sys, 'frozen', False) else os.path.abspath("BundleEditor.exe")
             current_dir = os.path.dirname(current_exe)
             extract_dir = os.path.join(current_dir, "update_extract")
+            exe_name = os.path.basename(current_exe)
 
             # 기존 압축 해제 폴더 삭제 및 재생성
             if os.path.exists(extract_dir):
@@ -244,43 +245,90 @@ class UpdateInstaller:
             os.makedirs(extract_dir, exist_ok=True)
 
             _log(f"ZIP 압축 해제 중... ({zip_path})")
-            time.sleep(2)  # Defender 안정화 대기
+            time.sleep(1)  # Defender 안정화 대기
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 zip_ref.extractall(extract_dir)
 
-            _log("✅ 압축 해제 완료, 기존 프로세스 종료 시도")
-            try:
-                exe_name = os.path.basename(current_exe)
-                subprocess.call(['taskkill', '/F', '/IM', exe_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                time.sleep(1)
-            except Exception as e:
-                _log_error(f"⚠️ 프로세스 종료 실패 (무시): {e}")
+            _log("✅ 압축 해제 완료")
 
-            # 파일 교체
-            _log("📂 파일 복사 중...")
-            for root, _, files in os.walk(extract_dir):
-                for file in files:
-                    src_path = os.path.join(root, file)
-                    rel_path = os.path.relpath(src_path, extract_dir)
-                    dst_path = os.path.join(current_dir, rel_path)
-                    os.makedirs(os.path.dirname(dst_path), exist_ok=True)
-                    shutil.copy2(src_path, dst_path)
+            # 배치 스크립트 생성
+            bat_path = os.path.join(current_dir, "update_installer.bat")
+            _log(f"배치 스크립트 생성 중... ({bat_path})")
 
-            _log("✅ 파일 복사 완료")
+            bat_content = f"""@echo off
+chcp 65001 > nul
+echo ========================================
+echo Bundle Editor Update Installation...
+echo ========================================
+echo.
 
-            # 정리
-            os.remove(zip_path)
-            shutil.rmtree(extract_dir, ignore_errors=True)
+REM Wait for process termination
+echo [1/5] Waiting for current process to terminate...
+ping 127.0.0.1 -n 3 > nul REM Wait 2 seconds + a
+taskkill /F /IM "{exe_name}" > nul 2>&1
+ping 127.0.0.1 -n 2 > nul REM Wait 1 second + a
+echo ✓ Process terminated
+echo.
 
-            # 재시작
+REM File copy
+echo [2/5] Copying files...
+xcopy /E /I /H /Y "{extract_dir}\\*" "{current_dir}\\" > nul
+if %ERRORLEVEL% NEQ 0 (
+    echo ❌ File copy failed
+    pause
+    exit /b 1
+)
+echo ✓ Files copied
+echo.
+
+REM Cleanup
+echo [3/5] Cleaning up temporary files...
+if exist "{zip_path}" del /F /Q "{zip_path}" > nul 2>&1
+if exist "{extract_dir}" rmdir /S /Q "{extract_dir}" > nul 2>&1
+echo ✓ Cleanup complete
+echo.
+
+REM Restart
+echo [4/5] Starting new version...
+start "" "{current_exe}"
+ping 127.0.0.1 -n 2 > nul REM Wait 1 second + a
+echo ✓ Restart complete
+echo.
+
+REM Self-delete batch file
+echo [5/5] Cleaning up installer script...
+ping 127.0.0.1 -n 3 > nul REM Wait 2 seconds + a
+(goto) 2>nul & del "%~f0"
+"""
+
+            with open(bat_path, 'w', encoding='utf-8') as f:
+                f.write(bat_content)
+
+            _log("✅ 배치 스크립트 생성 완료")
+
+            # 배치 파일 실행 (숨겨진 창에서)
             if restart:
-                _log("🚀 새 버전 실행 중...")
-                if getattr(sys, 'frozen', False):
-                    subprocess.Popen([current_exe], cwd=current_dir)
-                else:
-                    python_exe = sys.executable
-                    main_py = os.path.join(current_dir, "main.py")
-                    subprocess.Popen([python_exe, main_py], cwd=current_dir)
+                _log("🚀 업데이트 설치 스크립트 실행 중...")
+                _log("⚠️ 잠시 후 프로그램이 자동으로 재시작됩니다.")
+                
+                # CREATE_NO_WINDOW 플래그로 콘솔 창 숨김
+                CREATE_NO_WINDOW = 0x08000000
+                SW_HIDE = 0
+                STARTF_USESHOWWINDOW = 0x00000001
+                
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = SW_HIDE
+                
+                CREATE_NO_WINDOW = subprocess.CREATE_NO_WINDOW
+
+                subprocess.Popen(
+                    ["cmd.exe", "/c", "chcp 65001 &&", bat_path],
+                    cwd=current_dir
+                )
+                # 현재 프로세스 종료 (배치 스크립트가 처리함)
+                time.sleep(1)
+                sys.exit(0)
 
             return True
 
@@ -401,12 +449,12 @@ if __name__ == "__main__":
     print(f"   다운로드 URL: {info['download_url']}")
     print()
 
-    response = input("업데이트를 진행하시겠습니까? (y/n): ")
-    if response.lower() != 'y':
-        print("업데이트 취소됨")
-        sys.exit(0)
+    # response = input("업데이트를 진행하시겠습니까? (y/n): ")
+    # if response.lower() != 'y':
+    #     print("업데이트 취소됨")
+    #     sys.exit(0)
 
-    print()
+    # print()
     print("[2] 다운로드 중...")
 
     def progress_callback(received, total):
@@ -424,7 +472,7 @@ if __name__ == "__main__":
     print()
     print("[3] 설치 시작...")
 
-    success = UpdateInstaller.install_update(zip_path, restart=False)
+    success = UpdateInstaller.install_update(zip_path, restart=True)
 
     if success:
         print()
