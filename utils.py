@@ -40,8 +40,22 @@ def take_screenshot_with_coords(x, y, w, h):
     return screenshot_path
 
 
-def image_to_text(img_path="", lang='eng'):
-    """Convert the most recent screenshot to text."""
+def image_to_text(img_path="", lang='auto', expected_text=None, exact_match=False):
+    """
+    Convert the most recent screenshot to text.
+    
+    Args:
+        img_path: 이미지 파일 경로 (비어있으면 최신 스크린샷 사용)
+        lang: 언어 설정
+            - 'auto': 자동 감지 (영어+한글 동시 시도, 권장)
+            - 'kor': 한글 우선
+            - 'eng': 영어만
+        expected_text: 기대되는 텍스트 (선택사항, 조기 종료에 사용)
+        exact_match: 완전일치 모드 여부 (expected_text와 함께 사용)
+            
+    Returns:
+        추출된 텍스트 (실패 시 None 또는 빈 문자열)
+    """
     if img_path == "":
         if not os.path.exists(screenshot_dir):
             print("Screenshot directory does not exist.")
@@ -59,7 +73,7 @@ def image_to_text(img_path="", lang='eng'):
 
         img_path = os.path.join(screenshot_dir, screenshots[0])
 
-    return image_to_text_with_fallback(img_path=img_path, lang=lang, preview=False)
+    return image_to_text_with_fallback(img_path=img_path, lang=lang, preview=False, expected_text=expected_text, exact_match=exact_match)
 
 
 def load_config():

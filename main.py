@@ -51,6 +51,8 @@ class PbbAutoApp(QWidget):
         self.command_processor = CommandProcessor()  # 명령어 처리테스트기
         self.command_processor.set_main_app(self)  # 메인 앱 참조 설정
         self.current_file_path = None  # 현재 불러온 파일의 경로를 기억
+        self.recent_files = []  # 최근 열었던 파일 목록
+        self.max_recent_files = 10  # 최근 파일 목록 최대 개수
 
         #앱 아이콘 설정
         self.setWindowIcon(QIcon('probe.ico'))
@@ -76,6 +78,7 @@ class PbbAutoApp(QWidget):
         
         # Settings 초기화
         self.settings = self.load_app_settings()
+        
         
         # 초기 Tesseract 경로 적용
         tesseract_path = self.settings.get("tesseract_path", "")
@@ -250,8 +253,6 @@ class PbbAutoApp(QWidget):
         self.execute_count_lineEdit.setFixedWidth(50)
         self.open_report_checkbox = QCheckBox('Open Report', self)
         self.open_report_checkbox.setChecked(True)
-        self.open_screenshot_image = QCheckBox('Open Screenshot Image', self)
-        self.open_screenshot_image.setChecked(True)
         self.execute_button = QPushButton('Execute (F5)', self)
         self.execute_button.setShortcut('F5')
         self.execute_button.clicked.connect(self.execute_commands)
@@ -262,14 +263,14 @@ class PbbAutoApp(QWidget):
         
         # Schedule status label
         self.schedule_status_label = QLabel('Schedules: 0 active', self)
-        self.schedule_status_label.setStyleSheet("color: #666; font-size: 10px;")
+        self.schedule_status_label.setStyleSheet("color: #666; font-size: 12px;")
         
         # Keep-alive Controls
         self.keep_alive_button = QPushButton('Keep-Alive: OFF', self)
         self.keep_alive_button.clicked.connect(self.toggle_keep_alive)
-        self.keep_alive_button.setStyleSheet("font-size: 10px; padding: 2px 8px;")
+        self.keep_alive_button.setStyleSheet("font-size: 12px; padding: 2px 8px;")
         self.keep_alive_status_label = QLabel('PC 잠금 방지: 비활성', self)
-        self.keep_alive_status_label.setStyleSheet("color: #666; font-size: 10px;")
+        self.keep_alive_status_label.setStyleSheet("color: #666; font-size: 12px;")
         
         # Screen brightness controls
         self.dim_screen_button = QPushButton('화면 어둡게', self)
@@ -281,7 +282,6 @@ class PbbAutoApp(QWidget):
         execute_layout.addWidget(self.execute_count_label)
         execute_layout.addWidget(self.execute_count_lineEdit)
         execute_layout.addWidget(self.open_report_checkbox)
-        execute_layout.addWidget(self.open_screenshot_image)
         execute_layout.addStretch()
         execute_layout.addWidget(self.schedule_button)
         execute_layout.addWidget(self.execute_button)
@@ -324,6 +324,14 @@ class PbbAutoApp(QWidget):
         load_bundles_action.setShortcut('Ctrl+O')
         load_bundles_action.triggered.connect(self.load_bundles)
         menu.addAction(load_bundles_action)
+        
+        # Open Recent 서브메뉴 추가
+        self.recent_menu = QMenu('Open Recent', self)
+        menu.addMenu(self.recent_menu)
+        
+        # 최근 파일 목록 로드 후 메뉴 업데이트
+        self.load_recent_files()
+        self.update_recent_menu()
 
         menu.addSeparator()
         
@@ -490,18 +498,18 @@ class PbbAutoApp(QWidget):
 
             # 윈도우 선택
             selected_windows = []  # 매 루프마다 초기화
-            if self.multi_checkbox.isChecked():
-                for window in all_windows:
-                    if window.title in [self.window_dropdown.itemText(i) for i in range(self.window_dropdown.count())]:
-                        selected_windows.append(window)
-            else:
-                selected_window = self.window_dropdown.currentText()
-                print(f"찾으려는 윈도우: '{selected_window}'")
-                for window in all_windows:
-                    if window.title == selected_window:
-                        selected_windows.append(window)
-                        print(f"✓ 윈도우 찾음: '{window.title}'")
-                        break
+            # if self.multi_checkbox.isChecked():
+            #     for window in all_windows:
+            #         if window.title in [self.window_dropdown.itemText(i) for i in range(self.window_dropdown.count())]:
+            #             selected_windows.append(window)
+            # else:
+            selected_window = self.window_dropdown.currentText()
+            print(f"찾으려는 윈도우: '{selected_window}'")
+            for window in all_windows:
+                if window.title == selected_window:
+                    selected_windows.append(window)
+                    print(f"✓ 윈도우 찾음: '{window.title}'")
+                    break
             
             # 디버깅: 윈도우 선택 결과 확인
             if not selected_windows:
@@ -574,10 +582,25 @@ class PbbAutoApp(QWidget):
                             except Exception:
                                 pass
 
-        # 리포트 열기
+        # 리포트 열기 (OpenReport 체크박스가 켜져 있는 경우)
         try:
-            if self.open_report_checkbox.isChecked() and hasattr(self.command_processor, 'cl_path'):
-                os.startfile(self.command_processor.cl_path)
+            if self.open_report_checkbox.isChecked():
+                # 1. exportresult 명령어로 생성된 리포트 확인
+                if hasattr(self.command_processor, 'state'):
+                    state = self.command_processor.state
+                    txt_path = state.get('last_report_txt_path')
+                    excel_path = state.get('last_report_excel_path')
+                    
+                    # 우선순위: 텍스트 파일 > 엑셀 파일
+                    if txt_path and os.path.exists(txt_path):
+                        print(f"📄 텍스트 리포트 열기: {txt_path}")
+                        os.startfile(txt_path)
+                    elif excel_path and os.path.exists(excel_path):
+                        print(f"📊 엑셀 리포트 열기: {excel_path}")
+                        os.startfile(excel_path)
+                    elif hasattr(self.command_processor, 'cl_path'):
+                        # 2. 기존 체크리스트 파일 (레거시)
+                        os.startfile(self.command_processor.cl_path)
         except Exception as e:
             print('리포트 파일 열기 오류 :', e)
         
@@ -600,13 +623,21 @@ class PbbAutoApp(QWidget):
             self.command_processor.state['test_session_start'] = None
             self.command_processor.state['test_session_title'] = None
             
+            # 리포트 파일 경로 초기화
+            self.command_processor.state['last_report_txt_path'] = None
+            self.command_processor.state['last_report_excel_path'] = None
+            
             # popup 참조 제거
             if 'popup' in self.command_processor.state:
                 self.command_processor.state['popup'] = None
         
         # 명령어 실행 완료 후 시그널 emit (메인 스레드에서 popup 닫기)
-        print("명령어 실행 완료 - 시그널 emit")
-        self.execution_finished.emit()
+        # 단, 중지된 경우에는 emit하지 않음 (stop_execution에서 이미 처리)
+        if not self.stop_flag:
+            print("명령어 실행 완료 - 시그널 emit")
+            self.execution_finished.emit()
+        else:
+            print("명령어 실행이 중지되었습니다.")
 
     def stop_execution(self):
         """실행 중지 (개선된 버전)"""
@@ -1222,6 +1253,9 @@ class PbbAutoApp(QWidget):
             
             self.log(f"Saved {len(self.bundles)} bundles to {file_path}")
             self.update_window_title()
+            
+            # 최근 파일 목록에 추가
+            self.add_to_recent_files(file_path)
         
         except Exception as e:
             self.log_error(f"Error saving bundles: {e}")
@@ -1271,6 +1305,9 @@ class PbbAutoApp(QWidget):
             
             self.log(f"Saved {len(self.bundles)} bundles to {file_path}")
             self.update_window_title()
+            
+            # 최근 파일 목록에 추가
+            self.add_to_recent_files(file_path)
         
         except Exception as e:
             self.log_error(f"Error saving bundles as: {e}")
@@ -1351,6 +1388,9 @@ class PbbAutoApp(QWidget):
             # 성공적으로 불러온 파일을 현재 파일로 설정
             self.current_file_path = file_path
             self.update_window_title()
+            
+            # 최근 파일 목록에 추가
+            self.add_to_recent_files(file_path)
 
         
         except json.JSONDecodeError as e:
@@ -1359,6 +1399,186 @@ class PbbAutoApp(QWidget):
             self.log_error(f"Failed to load bundles:\n{e}")
             print(f"Error loading bundles: {e}")
 
+    def load_recent_files(self):
+        """최근 파일 목록 로드"""
+        try:
+            if os.path.exists("config.json"):
+                with open("config.json", 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    self.recent_files = config.get("recent_files", [])
+                    # 존재하지 않는 파일은 제거
+                    self.recent_files = [f for f in self.recent_files if os.path.exists(f)]
+        except Exception as e:
+            self.log_error(f"최근 파일 목록 로드 오류: {e}")
+            self.recent_files = []
+    
+    def save_recent_files(self):
+        """최근 파일 목록 저장"""
+        try:
+            config = {}
+            if os.path.exists("config.json"):
+                with open("config.json", 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+            
+            config["recent_files"] = self.recent_files
+            
+            with open("config.json", 'w', encoding='utf-8') as f:
+                json.dump(config, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            self.log_error(f"최근 파일 목록 저장 오류: {e}")
+    
+    def add_to_recent_files(self, file_path):
+        """최근 파일 목록에 추가"""
+        if not file_path or not os.path.exists(file_path):
+            return
+        
+        # 정규화된 절대 경로로 변환
+        file_path = os.path.abspath(file_path)
+        
+        # 이미 목록에 있으면 제거 (맨 앞에 다시 추가하기 위해)
+        if file_path in self.recent_files:
+            self.recent_files.remove(file_path)
+        
+        # 맨 앞에 추가
+        self.recent_files.insert(0, file_path)
+        
+        # 최대 개수 제한
+        if len(self.recent_files) > self.max_recent_files:
+            self.recent_files = self.recent_files[:self.max_recent_files]
+        
+        # 저장 및 메뉴 업데이트
+        self.save_recent_files()
+        self.update_recent_menu()
+    
+    def update_recent_menu(self):
+        """Open Recent 서브메뉴 업데이트"""
+        self.recent_menu.clear()
+        
+        if not self.recent_files:
+            # 최근 파일이 없을 때
+            no_recent_action = QAction('(비어있음)', self)
+            no_recent_action.setEnabled(False)
+            self.recent_menu.addAction(no_recent_action)
+        else:
+            # 최근 파일 목록 추가
+            for file_path in self.recent_files:
+                if os.path.exists(file_path):
+                    # 파일명만 표시 (전체 경로는 툴팁으로)
+                    filename = os.path.basename(file_path)
+                    action = QAction(filename, self)
+                    action.setToolTip(file_path)
+                    action.triggered.connect(lambda checked, path=file_path: self.load_recent_file(path))
+                    self.recent_menu.addAction(action)
+            
+            # 구분선
+            self.recent_menu.addSeparator()
+            
+            # 목록 지우기
+            clear_action = QAction('목록 지우기', self)
+            clear_action.triggered.connect(self.clear_recent_files)
+            self.recent_menu.addAction(clear_action)
+    
+    def load_recent_file(self, file_path):
+        """최근 파일에서 선택한 파일 로드"""
+        if not os.path.exists(file_path):
+            QMessageBox.warning(
+                self,
+                "파일을 찾을 수 없음",
+                f"파일을 찾을 수 없습니다:\n{file_path}\n\n목록에서 제거됩니다."
+            )
+            self.recent_files.remove(file_path)
+            self.save_recent_files()
+            self.update_recent_menu()
+            return
+        
+        # 파일 로드 로직 (load_bundles와 동일하지만 파일 선택 다이얼로그 없음)
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                load_data = json.load(f)
+            
+            if not isinstance(load_data, dict) or "bundles" not in load_data:
+                self.log_error(f"Invalid bundle file format.")
+                return
+            
+            if self.bundles or self.command_list.count() > 0:
+                reply = QMessageBox.question(
+                    self,
+                    "Load Bundles",
+                    "Do you want to merge with existing bundles?\n\n"
+                    "Yes: Merge (keep existing)\n"
+                    "No: Replace (clear existing)\n"
+                    "Cancel: Abort",
+                    QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel
+                )
+                
+                if reply == QMessageBox.Cancel:
+                    return
+                elif reply == QMessageBox.No:
+                    self.bundles.clear()
+                    self.command_list.clear()
+            
+            loaded_bundles = load_data.get("bundles", {})
+            for bundle_name, structs in loaded_bundles.items():
+                if bundle_name in self.bundles:
+                    resp = QMessageBox.question(
+                        self,
+                        "Overwrite Bundle?",
+                        f"Bundle '{bundle_name}' already exists. Overwrite?",
+                        QMessageBox.Yes | QMessageBox.No
+                    )
+                    if resp != QMessageBox.Yes:
+                        continue
+                
+                self.bundles[bundle_name] = structs
+            
+            command_list_data = load_data.get("command_list", [])
+            if command_list_data:
+                for item in command_list_data:
+                    if item.get("type") == "bundle":
+                        bundle_name = item.get("name")
+                        if bundle_name in self.bundles:
+                            count = len(self.bundles[bundle_name])
+                            list_item = self.add_checkable_item(f"[BUNDLE] {bundle_name} ({count})")
+                            # 저장된 체크 상태가 있으면 적용
+                            if "checked" in item:
+                                list_item.setCheckState(Qt.Checked if item["checked"] else Qt.Unchecked)
+                    elif item.get("type") == "command":
+                        text = item.get("text", "")
+                        if text:
+                            list_item = self.add_checkable_item(text)
+                            # 저장된 체크 상태가 있으면 적용
+                            if "checked" in item:
+                                list_item.setCheckState(Qt.Checked if item["checked"] else Qt.Unchecked)
+            
+            self.log(f"Loaded {len(loaded_bundles)} bundles from {file_path}")
+            
+            # 성공적으로 불러온 파일을 현재 파일로 설정
+            self.current_file_path = file_path
+            self.update_window_title()
+            
+            # 최근 파일 목록에 추가
+            self.add_to_recent_files(file_path)
+        
+        except json.JSONDecodeError as e:
+            self.log_error(f"Invalid JSON format:\n{e}")
+        except Exception as e:
+            self.log_error(f"Failed to load bundles:\n{e}")
+            print(f"Error loading bundles: {e}")
+    
+    def clear_recent_files(self):
+        """최근 파일 목록 지우기"""
+        reply = QMessageBox.question(
+            self,
+            "최근 파일 목록 지우기",
+            "최근 파일 목록을 모두 지우시겠습니까?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            self.recent_files.clear()
+            self.save_recent_files()
+            self.update_recent_menu()
+            self.log("최근 파일 목록이 지워졌습니다.")
+    
     def new_file(self):
         """새 파일 생성"""
         if self.bundles or self.command_list.count() > 0:
@@ -2055,8 +2275,37 @@ class PbbAutoApp(QWidget):
     # ==================== 종료 관련 ====================
     
     def closeEvent(self, event):
-        """애플리케이션 종료 시 스케줄러 정리"""
+        """애플리케이션 종료 시 저장 확인 및 정리"""
         try:
+            # 저장되지 않은 변경사항이 있는지 확인
+            has_unsaved_changes = False
+            if self.bundles or self.command_list.count() > 0:
+                # current_file_path가 없거나, 파일이 있어도 변경사항이 있을 수 있음
+                # 간단하게 번들이나 명령어가 있으면 저장 확인
+                has_unsaved_changes = True
+            
+            if has_unsaved_changes:
+                reply = QMessageBox.question(
+                    self,
+                    "종료 확인",
+                    "저장하지 않은 변경사항이 있을 수 있습니다.\n\n종료하시겠습니까?",
+                    QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
+                    QMessageBox.Save
+                )
+                
+                if reply == QMessageBox.Save:
+                    # 저장 후 종료
+                    self.save_bundles()
+                    # 저장이 취소되면 종료하지 않음 (current_file_path가 여전히 None인 경우)
+                    if not self.current_file_path and (self.bundles or self.command_list.count() > 0):
+                        event.ignore()
+                        return
+                elif reply == QMessageBox.Cancel:
+                    # 종료 취소
+                    event.ignore()
+                    return
+                # Discard인 경우 그냥 진행
+            
             print("애플리케이션 종료 중...")
             
             # 화면 밝기 복구 (어두워진 상태라면)

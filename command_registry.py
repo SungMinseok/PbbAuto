@@ -9,7 +9,9 @@ import logger_setup
 from abc import ABC, abstractmethod
 from PyQt5.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QLabel, QLineEdit, 
                              QSpinBox, QComboBox, QPushButton, QMessageBox, QCheckBox,
-                             QRadioButton, QButtonGroup, QTextEdit, QFileDialog)
+                             QRadioButton, QButtonGroup, QTextEdit, QFileDialog, QDialog,
+                             QScrollArea, QFrame)
+from PyQt5.QtGui import QPixmap, QFont
 from PyQt5.QtCore import Qt
 import time
 import os
@@ -28,6 +30,180 @@ from utils import take_screenshot, take_screenshot_with_coords, image_to_text, c
 from datetime import datetime
 import glob
 import subprocess
+
+
+def show_unified_ocr_test_dialog(
+    x, y, width, height, 
+    screenshot_path, 
+    ocr_lang, 
+    extracted_text="",
+    expected_text=None, 
+    exact_match=False,
+    ocr_attempts=None,
+    total_time=0
+):
+    """
+    통합 OCR 테스트 결과 팝업 다이얼로그
+    
+    Args:
+        x, y, width, height: 좌표 정보
+        screenshot_path: 스크린샷 경로
+        ocr_lang: OCR 언어 정보 (예: "영어", "한국어", "자동")
+        extracted_text: 실제로 추출된 텍스트
+        expected_text: 기대 텍스트 (선택사항)
+        exact_match: 완전일치 모드 여부
+        ocr_attempts: [(텍스트, 신뢰도, 정보), ...] 형태의 시도 목록
+        total_time: 총 소요 시간
+    """
+    import tes
+    
+    dialog = QDialog()
+    dialog.setWindowTitle("OCR 테스트 결과")
+    dialog.setMinimumWidth(850)
+    dialog.setMinimumHeight(700)
+    
+    # 메인 레이아웃을 스크롤 가능하게 만들기
+    main_layout = QVBoxLayout()
+    
+    # 스크롤 영역 생성
+    scroll_area = QScrollArea()
+    scroll_area.setWidgetResizable(True)
+    scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+    scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+    
+    # 스크롤 영역 안의 컨텐츠 위젯
+    content_widget = QWidget()
+    layout = QVBoxLayout()
+    content_widget.setLayout(layout)
+    
+    # 1. 기본 정보
+    info_text = f"📍 좌표: ({x}, {y}, {width}, {height})\n"
+    info_text += f"🌐 언어: {ocr_lang}\n"
+    info_text += f"⏱️ 총 소요시간: {total_time:.2f}초\n"
+    info_text += f"📁 스크린샷: {os.path.basename(screenshot_path)}"
+    
+    info_label = QLabel(info_text)
+    info_label.setFont(QFont("맑은 고딕", 10))
+    info_label.setWordWrap(True)
+    info_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+    layout.addWidget(info_label)
+    
+    # 구분선
+    line1 = QFrame()
+    line1.setFrameShape(QFrame.HLine)
+    line1.setFrameShadow(QFrame.Sunken)
+    layout.addWidget(line1)
+    
+    # 2. 시도 정보 (모든 OCR 시도)
+    attempts = ocr_attempts if ocr_attempts is not None else tes._last_ocr_attempts
+    
+    if attempts:
+        attempts_label = QLabel("🔍 OCR 시도 내역:")
+        attempts_label.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+        layout.addWidget(attempts_label)
+        
+        attempts_text = ""
+        for i, (text, conf, info) in enumerate(attempts, 1):
+            preview = text[:50] + "..." if len(text) > 50 else text
+            preview = preview.replace('\n', ' ')  # 줄바꿈 제거
+            attempts_text += f"{i}. [{info}] 신뢰도:{conf:.1f}% → '{preview}'\n"
+        
+        attempts_display = QTextEdit()
+        attempts_display.setPlainText(attempts_text)
+        attempts_display.setReadOnly(True)
+        attempts_display.setMaximumHeight(150)
+        attempts_display.setFont(QFont("Consolas", 9))
+        layout.addWidget(attempts_display)
+    else:
+        no_attempts_label = QLabel("⚠️ OCR 시도 정보가 없습니다.")
+        no_attempts_label.setFont(QFont("맑은 고딕", 9))
+        no_attempts_label.setStyleSheet("color: orange;")
+        layout.addWidget(no_attempts_label)
+    
+    # 구분선
+    line2 = QFrame()
+    line2.setFrameShape(QFrame.HLine)
+    line2.setFrameShadow(QFrame.Sunken)
+    layout.addWidget(line2)
+    
+    # 3. 최종 OCR 결과
+    result_label = QLabel("✅ 최종 OCR 결과:")
+    result_label.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+    layout.addWidget(result_label)
+    
+    # 실제 추출된 텍스트 사용 (전달된 extracted_text 우선, 없으면 attempts에서 최고 신뢰도)
+    display_text = extracted_text
+    if not display_text and attempts:
+        best_text, best_conf, best_info = max(attempts, key=lambda x: x[1])
+        display_text = best_text
+        result_label.setText(f"✅ 최종 OCR 결과 (최고 신뢰도: {best_conf:.1f}%):")
+    
+    result_text_edit = QTextEdit()
+    result_text_edit.setPlainText(display_text or "(텍스트를 찾을 수 없음)")
+    result_text_edit.setReadOnly(True)
+    result_text_edit.setMaximumHeight(120)
+    result_text_edit.setFont(QFont("맑은 고딕", 10))
+    layout.addWidget(result_text_edit)
+    
+    # 4. 기대 텍스트 비교
+    if expected_text:
+        match_type = "완전일치" if exact_match else "일부포함"
+        match_found = False
+        
+        # 실제 추출된 텍스트로 비교
+        compare_text = display_text or ""
+        
+        if exact_match:
+            match_found = compare_text.strip() == expected_text.strip()
+        else:
+            match_found = expected_text in compare_text
+        
+        if match_found:
+            match_label = QLabel(f"✅ Pass: 기대 텍스트 '{expected_text}'를 발견했습니다! ({match_type})")
+            match_label.setStyleSheet("color: green; font-weight: bold; background-color: #e8f5e9; padding: 8px; border-radius: 4px;")
+        else:
+            match_label = QLabel(f"❌ Fail: 기대 텍스트 '{expected_text}'를 찾지 못했습니다. ({match_type})")
+            match_label.setStyleSheet("color: red; font-weight: bold; background-color: #ffebee; padding: 8px; border-radius: 4px;")
+        
+        match_label.setFont(QFont("맑은 고딕", 10))
+        match_label.setWordWrap(True)
+        layout.addWidget(match_label)
+    
+    # 구분선
+    line3 = QFrame()
+    line3.setFrameShape(QFrame.HLine)
+    line3.setFrameShadow(QFrame.Sunken)
+    layout.addWidget(line3)
+    
+    # 5. 스크린샷 이미지
+    if os.path.exists(screenshot_path):
+        img_label = QLabel("🖼️ 캡처된 이미지:")
+        img_label.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+        layout.addWidget(img_label)
+        
+        img_container = QLabel()
+        pixmap = QPixmap(screenshot_path)
+        
+        # 이미지가 너무 크면 가로 크기에 맞춰 축소
+        if pixmap.width() > 800:
+            pixmap = pixmap.scaledToWidth(800, Qt.SmoothTransformation)
+        
+        img_container.setPixmap(pixmap)
+        img_container.setAlignment(Qt.AlignCenter)
+        layout.addWidget(img_container)
+    
+    # 스크롤 영역에 컨텐츠 위젯 설정
+    scroll_area.setWidget(content_widget)
+    main_layout.addWidget(scroll_area)
+    
+    # 닫기 버튼 (스크롤 영역 밖에 고정)
+    close_btn = QPushButton("닫기")
+    close_btn.setMinimumHeight(35)
+    close_btn.clicked.connect(dialog.accept)
+    main_layout.addWidget(close_btn)
+    
+    dialog.setLayout(main_layout)
+    dialog.exec_()
 
 
 class CommandBase(ABC):
@@ -1012,7 +1188,7 @@ class ScreenshotCommand(CommandBase):
                 QMessageBox.information(None, "좌표 선택", f"상대 좌표 계산 실패. 절대 좌표 사용: ({x}, {y}, {w}, {h})")
     
     def on_ss_test_ocr(self):
-        """OCR 테스트"""
+        """OCR 테스트 - 이미지 미리보기 포함"""
         try:
             x = int(self.ss_x.text().strip()) if self.ss_x.text().strip() else None
             y = int(self.ss_y.text().strip()) if self.ss_y.text().strip() else None
@@ -1026,11 +1202,72 @@ class ScreenshotCommand(CommandBase):
                 screenshot_path = take_screenshot()
                 info = "Full screen"
             
-            extracted = image_to_text(img_path=screenshot_path, lang='eng')
+            extracted = image_to_text(img_path=screenshot_path, lang='auto')
             if not extracted:
                 extracted = "(No text found)"
             
-            QMessageBox.information(None, "OCR Result", f"{info}\nScreenshot: {screenshot_path}\n\nExtracted Text:\n{extracted}")
+            # 이미지 미리보기가 포함된 커스텀 다이얼로그 생성
+            from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QScrollArea
+            from PyQt5.QtGui import QPixmap
+            from PyQt5.QtCore import Qt
+            
+            dialog = QDialog()
+            dialog.setWindowTitle("OCR Test Result")
+            dialog.setMinimumWidth(600)
+            
+            layout = QVBoxLayout()
+            
+            # 정보 레이블
+            info_label = QLabel(f"📍 {info}\n📁 {screenshot_path}")
+            info_label.setWordWrap(True)
+            layout.addWidget(info_label)
+            
+            # 이미지 미리보기
+            try:
+                pixmap = QPixmap(screenshot_path)
+                if not pixmap.isNull():
+                    # 적절한 크기로 조정 (최대 800x600, 종횡비 유지)
+                    max_width = 800
+                    max_height = 600
+                    
+                    if pixmap.width() > max_width or pixmap.height() > max_height:
+                        pixmap = pixmap.scaled(max_width, max_height, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    
+                    image_label = QLabel()
+                    image_label.setPixmap(pixmap)
+                    image_label.setAlignment(Qt.AlignCenter)
+                    
+                    # 스크롤 영역에 이미지 추가
+                    scroll_area = QScrollArea()
+                    scroll_area.setWidget(image_label)
+                    scroll_area.setWidgetResizable(True)
+                    scroll_area.setMaximumHeight(600)
+                    layout.addWidget(scroll_area)
+            except Exception as e:
+                error_label = QLabel(f"⚠️ 이미지 로드 실패: {e}")
+                layout.addWidget(error_label)
+            
+            # OCR 결과
+            result_label = QLabel("🔍 OCR 결과:")
+            result_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
+            layout.addWidget(result_label)
+            
+            extracted_label = QLabel(extracted)
+            extracted_label.setWordWrap(True)
+            extracted_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            extracted_label.setStyleSheet("background-color: #f0f0f0; padding: 10px; border-radius: 5px;")
+            layout.addWidget(extracted_label)
+            
+            # 닫기 버튼
+            button_layout = QHBoxLayout()
+            button_layout.addStretch()
+            close_btn = QPushButton("닫기")
+            close_btn.clicked.connect(dialog.accept)
+            button_layout.addWidget(close_btn)
+            layout.addLayout(button_layout)
+            
+            dialog.setLayout(layout)
+            dialog.exec_()
         
         except ValueError:
             QMessageBox.warning(None, "Test OCR", "Invalid coordinate values. Please enter valid numbers.")
@@ -1158,7 +1395,7 @@ class ClickCommand(CommandBase):
         coord_mode_row = QHBoxLayout()
         self.coord_mode_combo = QComboBox()
         self.coord_mode_combo.addItems(['스케일링 (기준해상도 기반)', '오프셋 (단순 위치이동)'])
-        self.coord_mode_combo.setCurrentIndex(0)  # 기본값: 스케일링
+        self.coord_mode_combo.setCurrentIndex(1)  # 기본값: 스케일링
         coord_mode_row.addWidget(QLabel('좌표 모드:'))
         coord_mode_row.addWidget(self.coord_mode_combo)
         coord_mode_row.addStretch()
@@ -1552,6 +1789,50 @@ class I2skrCommand(CommandBase):
         if processor_state and processor_state.get('screenshot_path'):
             processor_state['extracted_text'] = image_to_text(processor_state['screenshot_path'], lang='kor')
             print(f'OCR (Korean): {processor_state["extracted_text"]}')
+
+
+class OCRCommand(CommandBase):
+    """개선된 OCR 명령어 - 자동 언어 감지 및 다중 줄 지원"""
+    
+    @property
+    def name(self): return "OCR"
+    
+    @property
+    def description(self): return "OCR with Auto Language Detection (영어+한글 자동 감지, 다중 줄 지원)"
+    
+    def create_ui(self): 
+        widget = QWidget()
+        layout = QVBoxLayout()
+        
+        info_label = QLabel("📝 개선된 OCR - 자동 언어 감지 및 다중 줄 지원")
+        info_label.setStyleSheet("font-weight: bold; color: #2E8B57;")
+        layout.addWidget(info_label)
+        
+        desc_label = QLabel("최신 스크린샷에서 텍스트를 추출합니다.\n"
+                           "• 영어와 한글을 자동으로 감지\n"
+                           "• 여러 줄의 텍스트 지원\n"
+                           "• 다양한 전처리로 인식률 향상")
+        desc_label.setWordWrap(True)
+        layout.addWidget(desc_label)
+        
+        widget.setLayout(layout)
+        return widget
+    
+    def parse_params(self, params): 
+        return {}
+    
+    def set_ui_values(self, params): 
+        pass
+    
+    def get_command_string(self): 
+        return "ocr"
+    
+    def execute(self, params, window_coords=None, processor_state=None):
+        if processor_state and processor_state.get('screenshot_path'):
+            # 자동 언어 감지 사용
+            extracted = image_to_text(processor_state['screenshot_path'], lang='auto')
+            processor_state['extracted_text'] = extracted if extracted else ""
+            print(f'🔍 OCR (자동 감지): {processor_state["extracted_text"]}')
 
 class WaitUntilCommand(CommandBase):
     """텍스트가 나타날 때까지 대기하는 명령어"""
@@ -1953,8 +2234,11 @@ class WaitUntilCommand(CommandBase):
                 print(f"상대 좌표 계산 실패. 절대 좌표가 설정되었습니다: ({x}, {y}, {w}, {h}) - {e}")
     
     def on_test_ocr(self):
-        """현재 설정으로 OCR 테스트"""
+        """현재 설정으로 OCR 테스트 - 통합 함수 사용"""
         try:
+            import time
+            total_start = time.time()
+            
             x = self.x_input.value()
             y = self.y_input.value()
             width = self.width_input.value()
@@ -1996,43 +2280,35 @@ class WaitUntilCommand(CommandBase):
             except Exception:
                 # 오류 발생시 절대 좌표로 처리
                 screenshot_path = take_screenshot_with_coords(x, y, width, height)
+            
             if not screenshot_path:
                 QMessageBox.warning(None, "테스트 오류", "스크린샷 촬영에 실패했습니다.")
                 return
             
-            # OCR 실행
+            # OCR 실행 (expected_text를 전달하여 시도 정보를 _last_ocr_attempts에 저장)
             if ocr_type == 'i2s':
-                extracted_text = image_to_text(screenshot_path, lang='eng')
+                extracted_text = image_to_text(screenshot_path, lang='eng', expected_text=target_text, exact_match=exact_match)
                 ocr_lang = "영어"
             else:
-                extracted_text = image_to_text(screenshot_path, lang='kor')
+                extracted_text = image_to_text(screenshot_path, lang='kor', expected_text=target_text, exact_match=exact_match)
                 ocr_lang = "한국어"
             
             if not extracted_text:
-                extracted_text = "(텍스트를 찾을 수 없음)"
+                extracted_text = ""
             
-            # 결과 메시지 구성
-            info = f"좌표: ({x}, {y}, {width}, {height})\nOCR 언어: {ocr_lang}\n스크린샷: {screenshot_path}\n\nOCR 결과:\n{extracted_text}"
+            total_time = time.time() - total_start
             
-            # 타겟 텍스트 확인
-            if target_text:
-                match_type = "완전일치" if exact_match else "일부포함"
-                match_found = False
-                
-                if exact_match:
-                    # 완전일치: OCR 결과가 타겟 텍스트와 정확히 일치하는지 확인
-                    match_found = extracted_text.strip() == target_text.strip()
-                else:
-                    # 일부포함: OCR 결과에 타겟 텍스트가 포함되어 있는지 확인
-                    match_found = target_text in extracted_text
-                
-                if match_found:
-                    match_result = f"\n\n✓ 찾을 텍스트 '{target_text}'를 발견했습니다! ({match_type})"
-                else:
-                    match_result = f"\n\n✗ 찾을 텍스트 '{target_text}'를 찾지 못했습니다. ({match_type})"
-                info += match_result
-            
-            QMessageBox.information(None, "OCR 테스트 결과", info)
+            # 통합 다이얼로그 호출
+            show_unified_ocr_test_dialog(
+                x, y, width, height,
+                screenshot_path,
+                ocr_lang,
+                extracted_text=extracted_text,  # 실제 추출된 텍스트 전달
+                expected_text=target_text,
+                exact_match=exact_match,
+                ocr_attempts=None,  # _last_ocr_attempts 사용
+                total_time=total_time
+            )
             
         except Exception as e:
             QMessageBox.critical(None, "OCR 테스트 오류", f"테스트 중 오류가 발생했습니다:\n{e}")
@@ -2102,7 +2378,7 @@ class MouseWheelCommand(CommandBase):
         coord_mode_layout.addWidget(QLabel('좌표 모드:'))
         self.coord_mode_combo = QComboBox()
         self.coord_mode_combo.addItems(['스케일링 (기준해상도 기반)', '오프셋 (단순 위치이동)'])
-        self.coord_mode_combo.setCurrentIndex(0)
+        self.coord_mode_combo.setCurrentIndex(1)
         self.coord_mode_combo.setEnabled(False)
         coord_mode_layout.addWidget(self.coord_mode_combo)
         layout.addLayout(coord_mode_layout)
@@ -2383,7 +2659,7 @@ class TestTextCommand(CommandBase):
         coord_mode_layout.addWidget(QLabel('좌표 모드:'))
         self.coord_mode_combo = QComboBox()
         self.coord_mode_combo.addItems(['스케일링 (기준해상도 기반)', '오프셋 (단순 위치이동)'])
-        self.coord_mode_combo.setCurrentIndex(0)  # 기본값: 스케일링
+        self.coord_mode_combo.setCurrentIndex(1)  # 기본값: 스케일링
         coord_mode_layout.addWidget(self.coord_mode_combo)
         layout.addLayout(coord_mode_layout)
         
@@ -2614,11 +2890,11 @@ class TestTextCommand(CommandBase):
                         return
                     continue
                 
-                # OCR 실행
+                # OCR 실행 (조기 종료 최적화: expected_text와 exact_match 전달)
                 if ocr_type == 'i2s':
-                    extracted_text = image_to_text(screenshot_path, lang='eng')
+                    extracted_text = image_to_text(screenshot_path, lang='eng', expected_text=expected_text, exact_match=exact_match)
                 elif ocr_type == 'i2skr':
-                    extracted_text = image_to_text(screenshot_path, lang='kor')
+                    extracted_text = image_to_text(screenshot_path, lang='kor', expected_text=expected_text, exact_match=exact_match)
                 else:
                     print(f"지원하지 않는 OCR 타입: {ocr_type}")
                     return
@@ -2798,8 +3074,11 @@ class TestTextCommand(CommandBase):
                 print(f"상대 좌표 계산 실패. 절대 좌표가 설정되었습니다: ({x}, {y}, {w}, {h}) - {e}")
     
     def on_test_ocr(self):
-        """현재 설정으로 OCR 테스트 (WaitUntilCommand와 유사하지만 결과만 표시)"""
+        """현재 설정으로 OCR 테스트 - 통합 함수 사용 (WaitUntil과 동일)"""
         try:
+            import time
+            total_start = time.time()
+            
             x = self.x_input.value()
             y = self.y_input.value()
             width = self.width_input.value()
@@ -2846,40 +3125,30 @@ class TestTextCommand(CommandBase):
                 QMessageBox.warning(None, "테스트 오류", "스크린샷 촬영에 실패했습니다.")
                 return
             
-            # OCR 실행
+            # OCR 실행 (expected_text를 전달하여 시도 정보를 _last_ocr_attempts에 저장)
             if ocr_type == 'i2s':
-                extracted_text = image_to_text(screenshot_path, lang='eng')
+                extracted_text = image_to_text(screenshot_path, lang='eng', expected_text=expected_text, exact_match=exact_match)
                 ocr_lang = "영어"
             else:
-                extracted_text = image_to_text(screenshot_path, lang='kor')
+                extracted_text = image_to_text(screenshot_path, lang='kor', expected_text=expected_text, exact_match=exact_match)
                 ocr_lang = "한국어"
             
             if not extracted_text:
-                extracted_text = "(텍스트를 찾을 수 없음)"
+                extracted_text = ""
             
-            # 결과 메시지 구성
-            info = f"좌표: ({x}, {y}, {width}, {height})\nOCR 언어: {ocr_lang}\n스크린샷: {screenshot_path}\n\nOCR 결과:\n{extracted_text}"
+            total_time = time.time() - total_start
             
-            # 기대 텍스트와 비교
-            if expected_text:
-                match_type = "완전일치" if exact_match else "일부포함"
-                match_found = False
-                
-                if exact_match:
-                    # 완전일치: OCR 결과가 기대 텍스트와 정확히 일치하는지 확인
-                    match_found = extracted_text.strip() == expected_text.strip()
-                else:
-                    # 일부포함: OCR 결과에 기대 텍스트가 포함되어 있는지 확인
-                    match_found = expected_text in extracted_text
-                
-                result = "Pass" if match_found else "Fail"
-                if match_found:
-                    match_result = f"\n\n✓ {result}: 기대 텍스트 '{expected_text}'를 발견했습니다! ({match_type})"
-                else:
-                    match_result = f"\n\n✗ {result}: 기대 텍스트 '{expected_text}'를 찾지 못했습니다. ({match_type})"
-                info += match_result
-            
-            QMessageBox.information(None, "OCR 테스트 결과", info)
+            # 통합 다이얼로그 호출
+            show_unified_ocr_test_dialog(
+                x, y, width, height,
+                screenshot_path,
+                ocr_lang,
+                extracted_text=extracted_text,  # 실제 추출된 텍스트 전달
+                expected_text=expected_text,
+                exact_match=exact_match,
+                ocr_attempts=None,  # _last_ocr_attempts 사용
+                total_time=total_time
+            )
             
         except Exception as e:
             QMessageBox.critical(None, "OCR 테스트 오류", f"테스트 중 오류가 발생했습니다:\n{e}")
@@ -3026,6 +3295,16 @@ class ExportResultCommand(CommandBase):
         image_layout.addWidget(self.include_images_checkbox)
         layout.addLayout(image_layout)
         
+        # 특정 파일명 지정 옵션 (엑셀 하위 옵션)
+        filename_layout = QHBoxLayout()
+        filename_layout.addSpacing(20)  # 들여쓰기
+        filename_layout.addWidget(QLabel('특정 파일명:'))
+        self.excel_filename_input = QLineEdit()
+        self.excel_filename_input.setPlaceholderText("비워두면 타임스탬프 파일명으로 생성, 입력하면 해당 파일에 추가")
+        self.excel_filename_input.setToolTip('파일명을 지정하면 해당 엑셀 파일이 있을 경우 이어서 추가하고, 없으면 새로 생성합니다.')
+        filename_layout.addWidget(self.excel_filename_input)
+        layout.addLayout(filename_layout)
+        
         # 구분선
         separator2 = QLabel("─" * 60)
         separator2.setStyleSheet("color: gray;")
@@ -3142,10 +3421,12 @@ class ExportResultCommand(CommandBase):
         
         self.create_jira_checkbox.toggled.connect(on_jira_checkbox_changed)
         
-        # 엑셀 체크박스와 이미지 포함 옵션 연동
+        # 엑셀 체크박스와 하위 옵션들 연동
         def on_excel_checkbox_changed():
-            self.include_images_checkbox.setEnabled(self.export_excel_checkbox.isChecked())
-            if not self.export_excel_checkbox.isChecked():
+            enabled = self.export_excel_checkbox.isChecked()
+            self.include_images_checkbox.setEnabled(enabled)
+            self.excel_filename_input.setEnabled(enabled)
+            if not enabled:
                 self.include_images_checkbox.setChecked(False)
         
         self.export_excel_checkbox.toggled.connect(on_excel_checkbox_changed)
@@ -3203,10 +3484,11 @@ class ExportResultCommand(CommandBase):
                 'jira_url': '',
                 'jira_project': '',
                 'jira_email': '',
-                'jira_token': ''
+                'jira_token': '',
+                'excel_filename': ''  # 맨 뒤에 추가 (하위 호환성 유지)
             }
             
-            # 파라미터 파싱: [title] [export_excel] [include_images] [export_text] [send_slack] [webhook_url] [create_jira] [jira_url] [jira_project] [jira_email] [jira_token]
+            # 파라미터 파싱: [title] [export_excel] [include_images] [export_text] [send_slack] [webhook_url] [create_jira] [jira_url] [jira_project] [jira_email] [jira_token] [excel_filename]
             if len(tokens) > 0:
                 value = tokens[0].strip('"')  # 큰따옴표 제거
                 parsed['title'] = '' if value in ["''", '""', ''] else value
@@ -3235,6 +3517,9 @@ class ExportResultCommand(CommandBase):
             if len(tokens) > 10:
                 value = tokens[10].strip('"')  # 큰따옴표 제거
                 parsed['jira_token'] = '' if value in ["''", '""', ''] else value
+            if len(tokens) > 11:
+                value = tokens[11].strip('"')  # 큰따옴표 제거
+                parsed['excel_filename'] = '' if value in ["''", '""', ''] else value
             
             print(f"exportresult 파싱 성공: {parsed}")
             return parsed
@@ -3254,7 +3539,8 @@ class ExportResultCommand(CommandBase):
                 'jira_url': '',
                 'jira_project': '',
                 'jira_email': '',
-                'jira_token': ''
+                'jira_token': '',
+                'excel_filename': ''  # 맨 뒤에 추가 (하위 호환성 유지)
             }
     
     def set_ui_values(self, params):
@@ -3263,6 +3549,7 @@ class ExportResultCommand(CommandBase):
         self.title_input.setText(params.get('title', ''))
         self.export_excel_checkbox.setChecked(params.get('export_excel', True))
         self.include_images_checkbox.setChecked(params.get('include_images', False))
+        self.excel_filename_input.setText(params.get('excel_filename', ''))
         self.export_text_checkbox.setChecked(params.get('export_text', True))
         self.send_slack_checkbox.setChecked(params.get('send_slack', False))
         self.webhook_url_input.setText(params.get('webhook_url', ''))
@@ -3284,6 +3571,7 @@ class ExportResultCommand(CommandBase):
         jira_project = self.jira_project_input.text().strip()
         jira_email = self.jira_email_input.text().strip()
         jira_token = self.jira_token_input.text().strip()
+        excel_filename = self.excel_filename_input.text().strip()  # 맨 뒤로 이동
         
         # 띄어쓰기가 있는 제목은 큰따옴표로 감싸기
         if title and ' ' in title:
@@ -3310,8 +3598,14 @@ class ExportResultCommand(CommandBase):
             
         if not jira_token:
             jira_token = "''"
+        
+        # 엑셀 파일명 처리 (맨 뒤)
+        if excel_filename and ' ' in excel_filename:
+            excel_filename = f'"{excel_filename}"'
+        elif not excel_filename:
+            excel_filename = "''"
             
-        return f"exportresult {title} {export_excel} {include_images} {export_text} {send_slack} {webhook_url} {create_jira} {jira_url} {jira_project} {jira_email} {jira_token}"
+        return f"exportresult {title} {export_excel} {include_images} {export_text} {send_slack} {webhook_url} {create_jira} {jira_url} {jira_project} {jira_email} {jira_token} {excel_filename}"
     
     def execute(self, params, window_coords=None, processor_state=None):
         print("-"*50)
@@ -3361,6 +3655,7 @@ class ExportResultCommand(CommandBase):
         # 파라미터 파싱
         export_excel = params.get('export_excel', True) if params else True
         include_images = params.get('include_images', False) if params else False
+        excel_filename = params.get('excel_filename', '') if params else ''
         export_text = params.get('export_text', True) if params else True
         send_slack = params.get('send_slack', False) if params else False
         webhook_url = params.get('webhook_url', '') if params else ''
@@ -3370,21 +3665,33 @@ class ExportResultCommand(CommandBase):
         jira_email = params.get('jira_email', '') if params else ''
         jira_token = params.get('jira_token', '') if params else ''
         
-        # 파일명 생성 (년월일시분초)
+        # 파일명 생성
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         title = params.get('title', '') if params else ''
         
-        if title:
-            # 파일명에 사용할 수 없는 문자들을 안전한 문자로 치환
-            safe_title = title.replace(' ', '_').replace('/', '_').replace('\\', '_').replace(':', '_').replace('*', '_').replace('?', '_').replace('"', '_').replace('<', '_').replace('>', '_').replace('|', '_')
-            base_filename = f"{safe_title}_{timestamp}"
+        # 엑셀 파일명 처리
+        if excel_filename:
+            # 사용자가 파일명을 지정한 경우
+            # .xlsx 확장자가 없으면 추가
+            if not excel_filename.endswith('.xlsx'):
+                excel_filename = f"{excel_filename}.xlsx"
+            excel_path = os.path.join(test_results_dir, excel_filename)
+            
+            # 기본 파일명은 엑셀 파일명 기반으로 생성
+            base_filename = excel_filename.replace('.xlsx', '')
         else:
-            base_filename = f"testresult_{timestamp}"
+            # 타임스탬프 기반 파일명 생성
+            if title:
+                # 파일명에 사용할 수 없는 문자들을 안전한 문자로 치환
+                safe_title = title.replace(' ', '_').replace('/', '_').replace('\\', '_').replace(':', '_').replace('*', '_').replace('?', '_').replace('"', '_').replace('<', '_').replace('>', '_').replace('|', '_')
+                base_filename = f"{safe_title}_{timestamp}"
+            else:
+                base_filename = f"testresult_{timestamp}"
+            
+            excel_filename = f"{base_filename}.xlsx"
+            excel_path = os.path.join(test_results_dir, excel_filename)
         
-        excel_filename = f"{base_filename}.xlsx"
         text_filename = f"{base_filename}_summary.txt"
-        
-        excel_path = os.path.join(test_results_dir, excel_filename)
         text_path = os.path.join(test_results_dir, text_filename)
         
         # test_results_dir 존재 확인
@@ -3417,11 +3724,18 @@ class ExportResultCommand(CommandBase):
         # 1. 엑셀 파일 생성
         excel_success = False
         if export_excel:
+            # 파일 존재 여부 확인
+            file_exists = os.path.exists(excel_path)
+            if file_exists:
+                print(f"📝 기존 엑셀 파일 발견: {excel_filename}")
+                print(f"   → 기존 파일에 결과를 이어서 추가합니다.")
+            
             if include_images:
                 # 이미지 포함 모드
-                print("엑셀 파일 생성 중... (이미지 포함 모드)")
+                mode_text = "이어쓰기" if file_exists else "새로 생성"
+                print(f"엑셀 파일 {mode_text} 중... (이미지 포함 모드)")
                 try:
-                    self._create_excel_report(test_results, excel_path, processor_state)
+                    self._create_excel_report(test_results, excel_path, processor_state, append=file_exists)
                     print(f"✓ 엑셀 파일 저장됨 (이미지 포함): {excel_path}")
                     excel_success = True
                 except Exception as e:
@@ -3429,16 +3743,17 @@ class ExportResultCommand(CommandBase):
                     # 이미지 포함 모드 실패 시 안전 모드로 fallback
                     try:
                         print("안전 모드로 fallback 시도...")
-                        self._create_excel_report_safe(test_results, excel_path, processor_state)
+                        self._create_excel_report_safe(test_results, excel_path, processor_state, append=file_exists)
                         print(f"✓ 엑셀 파일 저장됨 (안전 모드 fallback): {excel_path}")
                         excel_success = True
                     except Exception as e2:
                         print(f"❌ 안전 모드 fallback도 실패: {e2}")
             else:
                 # 안전 모드 (기본값)
-                print("엑셀 파일 생성 중... (안전 모드 - 이미지 제외)")
+                mode_text = "이어쓰기" if file_exists else "새로 생성"
+                print(f"엑셀 파일 {mode_text} 중... (안전 모드 - 이미지 제외)")
                 try:
-                    self._create_excel_report_safe(test_results, excel_path, processor_state)
+                    self._create_excel_report_safe(test_results, excel_path, processor_state, append=file_exists)
                     print(f"✓ 엑셀 파일 저장됨 (안전 모드): {excel_path}")
                     excel_success = True
                 except Exception as e:
@@ -3501,9 +3816,21 @@ class ExportResultCommand(CommandBase):
                   f"Jira: {'✓' if jira_success else '❌'}")
         else:
             print(f"❌ 모든 작업이 실패했습니다.")
+        
+        # 생성된 리포트 파일 경로를 processor_state에 저장 (메인 앱에서 열기 위해)
+        if processor_state is not None:
+            processor_state['last_report_txt_path'] = text_path if txt_success else None
+            processor_state['last_report_excel_path'] = excel_path if excel_success else None
     
-    def _create_excel_report(self, test_results, excel_path, processor_state=None):
-        """엑셀 리포트 생성 (스크린샷 이미지 포함)"""
+    def _create_excel_report(self, test_results, excel_path, processor_state=None, append=False):
+        """엑셀 리포트 생성 (스크린샷 이미지 포함)
+        
+        Args:
+            test_results: 테스트 결과 리스트
+            excel_path: 엑셀 파일 경로
+            processor_state: 프로세서 상태
+            append: True면 기존 파일에 추가, False면 새로 생성
+        """
         from openpyxl.drawing.image import Image as OpenpyxlImage
         import os
         import pyautogui
@@ -3512,21 +3839,44 @@ class ExportResultCommand(CommandBase):
         # 이미지 삽입 여부 확인 (PIL 불필요 - openpyxl 직접 사용)
         insert_images = True
         
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "테스트 결과"
+        # 기존 파일이 있고 append 모드면 로드, 없으면 새로 생성
+        if append and os.path.exists(excel_path):
+            try:
+                wb = load_workbook(excel_path)
+                ws = wb.active
+                start_row = ws.max_row + 1  # 다음 행부터 추가
+                print(f"   기존 데이터 {ws.max_row - 1}개, 새 데이터 {len(test_results)}개 추가")
+            except Exception as e:
+                print(f"   ⚠️ 기존 파일 로드 실패, 새로 생성합니다: {e}")
+                wb = Workbook()
+                ws = wb.active
+                ws.title = "테스트 결과"
+                start_row = 2
+                
+                # 헤더 설정
+                headers = ['번호', '제목', '결과', '기대값', '추출값', '매칭모드', '스크린샷 경로', '스크린샷', '전체 스크린샷']
+                for col, header in enumerate(headers, 1):
+                    ws.cell(row=1, column=col, value=header)
+                ws.row_dimensions[1].height = 25
+        else:
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "테스트 결과"
+            start_row = 2
+            
+            # 헤더 설정 (전체 스크린샷 컬럼 추가)
+            headers = ['번호', '제목', '결과', '기대값', '추출값', '매칭모드', '스크린샷 경로', '스크린샷', '전체 스크린샷']
+            for col, header in enumerate(headers, 1):
+                ws.cell(row=1, column=col, value=header)
+            
+            # 행 높이 설정 (모든 행을 기본 높이로 고정)
+            ws.row_dimensions[1].height = 25  # 헤더 행
         
-        # 헤더 설정 (전체 스크린샷 컬럼 추가)
-        headers = ['번호', '제목', '결과', '기대값', '추출값', '매칭모드', '스크린샷 경로', '스크린샷', '전체 스크린샷']
-        for col, header in enumerate(headers, 1):
-            ws.cell(row=1, column=col, value=header)
-        
-        # 행 높이 설정 (모든 행을 기본 높이로 고정)
-        ws.row_dimensions[1].height = 25  # 헤더 행
         default_row_height = 22  # 기본 셀 높이 (포인트 단위)
         
         # 데이터 입력 및 스크린샷 이미지 삽입
-        for row, result in enumerate(test_results, 2):
+        for idx, result in enumerate(test_results):
+            row = start_row + idx
             # 기본 데이터 입력
             ws.cell(row=row, column=1, value=row-1)  # 번호
             ws.cell(row=row, column=2, value=result['title'])
@@ -3695,19 +4045,47 @@ class ExportResultCommand(CommandBase):
         # 파일 저장 (UTF-8 인코딩으로 처리)
         wb.save(excel_path)
     
-    def _create_excel_report_safe(self, test_results, excel_path, processor_state=None):
-        """엑셀 리포트 생성 (안전 모드 - 이미지 없음)"""
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "테스트 결과"
+    def _create_excel_report_safe(self, test_results, excel_path, processor_state=None, append=False):
+        """엑셀 리포트 생성 (안전 모드 - 이미지 없음)
         
-        # 헤더 설정 (스크린샷 경로만 포함, 실제 이미지 제외)
-        headers = ['번호', '제목', '결과', '기대값', '추출값', '매칭모드', '스크린샷 경로']
-        for col, header in enumerate(headers, 1):
-            ws.cell(row=1, column=col, value=header)
+        Args:
+            test_results: 테스트 결과 리스트
+            excel_path: 엑셀 파일 경로
+            processor_state: 프로세서 상태
+            append: True면 기존 파일에 추가, False면 새로 생성
+        """
+        # 기존 파일이 있고 append 모드면 로드, 없으면 새로 생성
+        if append and os.path.exists(excel_path):
+            try:
+                wb = load_workbook(excel_path)
+                ws = wb.active
+                start_row = ws.max_row + 1  # 다음 행부터 추가
+                print(f"   기존 데이터 {ws.max_row - 1}개, 새 데이터 {len(test_results)}개 추가")
+            except Exception as e:
+                print(f"   ⚠️ 기존 파일 로드 실패, 새로 생성합니다: {e}")
+                wb = Workbook()
+                ws = wb.active
+                ws.title = "테스트 결과"
+                start_row = 2
+                
+                # 헤더 설정
+                headers = ['번호', '제목', '결과', '기대값', '추출값', '매칭모드', '스크린샷 경로']
+                for col, header in enumerate(headers, 1):
+                    ws.cell(row=1, column=col, value=header)
+        else:
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "테스트 결과"
+            start_row = 2
+            
+            # 헤더 설정 (스크린샷 경로만 포함, 실제 이미지 제외)
+            headers = ['번호', '제목', '결과', '기대값', '추출값', '매칭모드', '스크린샷 경로']
+            for col, header in enumerate(headers, 1):
+                ws.cell(row=1, column=col, value=header)
         
         # 데이터 입력 (이미지 삽입 없음)
-        for row, result in enumerate(test_results, 2):
+        for idx, result in enumerate(test_results):
+            row = start_row + idx
             ws.cell(row=row, column=1, value=row-1)  # 번호
             ws.cell(row=row, column=2, value=result['title'])
             ws.cell(row=row, column=3, value=result['result'])
@@ -5293,23 +5671,24 @@ class KeepAliveCommand(CommandBase):
 
 
 # 명령어 레지스트리 - 새 명령어는 여기만 추가하면 됩니다! 🎉
+# 명령어들 모두 대문자 추가
 COMMAND_REGISTRY = {
-    'press': PressCommand(),
-    'write': WriteCommand(),
-    'wait': WaitCommand(),
-    'screenshot': ScreenshotCommand(),
-    'click': ClickCommand(),
-    'drag': DragCommand(),  # ← 새 명령어 추가! 이것만 하면 끝!
-    'mousewheel': MouseWheelCommand(),  # ← 마우스 휠 조작 명령어
-    'i2s': I2sCommand(),
-    'i2skr': I2skrCommand(),
-    'waituntil': WaitUntilCommand(),
-    'testtext': TestTextCommand(),  # ← 텍스트 추출 기반 Pass/Fail 판별 명령어
-    'showresults': ShowTestResultsCommand(),  # ← 테스트 결과 표시 명령어
-    'exportresult': ExportResultCommand(),  # ← 테스트 결과 다양한 형태로 내보내기 명령어 (엑셀, 텍스트, 슬랙)
-    'runapp': RunAppCommand(),  # ← 앱 실행 및 윈도우 자동 설정 명령어
-    #'keepalive': KeepAliveCommand(),  # ← PC 자동 잠금 방지 제어 명령어
-    # TODO: validate, export, cheat 등 추가 필요
+    'Press': PressCommand(),
+    'Write': WriteCommand(),
+    'Wait': WaitCommand(),
+    'Screenshot': ScreenshotCommand(),
+    'Click': ClickCommand(),
+    'Drag': DragCommand(),  # ← 새 명령어 추가! 이것만 하면 끝!
+    'MouseWheel': MouseWheelCommand(),  # ← 마우스 휠 조작 명령어
+    'I2S': I2sCommand(),
+    'I2SKR': I2skrCommand(),
+    'OCR': OCRCommand(),  # ← 개선된 OCR (자동 언어 감지, 다중 줄 지원)
+    'WaitUntil': WaitUntilCommand(),
+    'TestText': TestTextCommand(),  # ← 텍스트 추출 기반 Pass/Fail 판별 명령어
+    'ShowResults': ShowTestResultsCommand(),  # ← 테스트 결과 표시 명령어
+    'ExportResult': ExportResultCommand(),  # ← 테스트 결과 다양한 형태로 내보내기 명령어 (엑셀, 텍스트, 슬랙)
+    'RunApp': RunAppCommand(),  # ← 앱 실행 및 윈도우 자동 설정 명령�
+   # 'keepalive': KeepAliveCommand(),  # ← PC 자동 잠금 방지 제어 명령어
 }
 
 
