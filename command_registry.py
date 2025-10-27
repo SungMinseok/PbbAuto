@@ -3295,6 +3295,15 @@ class ExportResultCommand(CommandBase):
         image_layout.addWidget(self.include_images_checkbox)
         layout.addLayout(image_layout)
         
+        # 실패 항목 전체 스크린샷 옵션 (엑셀 하위 옵션)
+        fail_image_layout = QHBoxLayout()
+        fail_image_layout.addSpacing(20)  # 들여쓰기
+        self.include_fail_fullscreen_checkbox = QCheckBox('실패 항목에 전체 스크린샷 삽입')
+        self.include_fail_fullscreen_checkbox.setChecked(True)  # 기본값: 활성화
+        self.include_fail_fullscreen_checkbox.setToolTip('체크 해제하면 실패 항목에 전체 스크린샷을 삽입하지 않습니다.')
+        fail_image_layout.addWidget(self.include_fail_fullscreen_checkbox)
+        layout.addLayout(fail_image_layout)
+        
         # 특정 파일명 지정 옵션 (엑셀 하위 옵션)
         filename_layout = QHBoxLayout()
         filename_layout.addSpacing(20)  # 들여쓰기
@@ -3425,6 +3434,7 @@ class ExportResultCommand(CommandBase):
         def on_excel_checkbox_changed():
             enabled = self.export_excel_checkbox.isChecked()
             self.include_images_checkbox.setEnabled(enabled)
+            self.include_fail_fullscreen_checkbox.setEnabled(enabled)
             self.excel_filename_input.setEnabled(enabled)
             if not enabled:
                 self.include_images_checkbox.setChecked(False)
@@ -3477,6 +3487,7 @@ class ExportResultCommand(CommandBase):
                 'title': '',
                 'export_excel': True,
                 'include_images': False,
+                'include_fail_fullscreen': True,
                 'export_text': True,
                 'send_slack': False,
                 'webhook_url': '',
@@ -3488,7 +3499,7 @@ class ExportResultCommand(CommandBase):
                 'excel_filename': ''  # 맨 뒤에 추가 (하위 호환성 유지)
             }
             
-            # 파라미터 파싱: [title] [export_excel] [include_images] [export_text] [send_slack] [webhook_url] [create_jira] [jira_url] [jira_project] [jira_email] [jira_token] [excel_filename]
+            # 파라미터 파싱: [title] [export_excel] [include_images] [include_fail_fullscreen] [export_text] [send_slack] [webhook_url] [create_jira] [jira_url] [jira_project] [jira_email] [jira_token] [excel_filename]
             if len(tokens) > 0:
                 value = tokens[0].strip('"')  # 큰따옴표 제거
                 parsed['title'] = '' if value in ["''", '""', ''] else value
@@ -3497,28 +3508,30 @@ class ExportResultCommand(CommandBase):
             if len(tokens) > 2:
                 parsed['include_images'] = tokens[2].lower() == 'true'
             if len(tokens) > 3:
-                parsed['export_text'] = tokens[3].lower() == 'true'
+                parsed['include_fail_fullscreen'] = tokens[3].lower() == 'true'
             if len(tokens) > 4:
-                parsed['send_slack'] = tokens[4].lower() == 'true'
+                parsed['export_text'] = tokens[4].lower() == 'true'
             if len(tokens) > 5:
-                value = tokens[5].strip('"')  # 큰따옴표 제거
-                parsed['webhook_url'] = '' if value in ["''", '""', ''] else value
+                parsed['send_slack'] = tokens[5].lower() == 'true'
             if len(tokens) > 6:
-                parsed['create_jira'] = tokens[6].lower() == 'true'
+                value = tokens[6].strip('"')  # 큰따옴표 제거
+                parsed['webhook_url'] = '' if value in ["''", '""', ''] else value
             if len(tokens) > 7:
-                value = tokens[7].strip('"')  # 큰따옴표 제거
-                parsed['jira_url'] = '' if value in ["''", '""', ''] else value
+                parsed['create_jira'] = tokens[7].lower() == 'true'
             if len(tokens) > 8:
                 value = tokens[8].strip('"')  # 큰따옴표 제거
-                parsed['jira_project'] = '' if value in ["''", '""', ''] else value
+                parsed['jira_url'] = '' if value in ["''", '""', ''] else value
             if len(tokens) > 9:
                 value = tokens[9].strip('"')  # 큰따옴표 제거
-                parsed['jira_email'] = '' if value in ["''", '""', ''] else value
+                parsed['jira_project'] = '' if value in ["''", '""', ''] else value
             if len(tokens) > 10:
                 value = tokens[10].strip('"')  # 큰따옴표 제거
-                parsed['jira_token'] = '' if value in ["''", '""', ''] else value
+                parsed['jira_email'] = '' if value in ["''", '""', ''] else value
             if len(tokens) > 11:
                 value = tokens[11].strip('"')  # 큰따옴표 제거
+                parsed['jira_token'] = '' if value in ["''", '""', ''] else value
+            if len(tokens) > 12:
+                value = tokens[12].strip('"')  # 큰따옴표 제거
                 parsed['excel_filename'] = '' if value in ["''", '""', ''] else value
             
             print(f"exportresult 파싱 성공: {parsed}")
@@ -3532,6 +3545,7 @@ class ExportResultCommand(CommandBase):
                 'title': '',
                 'export_excel': True,
                 'include_images': False,
+                'include_fail_fullscreen': True,
                 'export_text': True,
                 'send_slack': False,
                 'webhook_url': '',
@@ -3549,6 +3563,7 @@ class ExportResultCommand(CommandBase):
         self.title_input.setText(params.get('title', ''))
         self.export_excel_checkbox.setChecked(params.get('export_excel', True))
         self.include_images_checkbox.setChecked(params.get('include_images', False))
+        self.include_fail_fullscreen_checkbox.setChecked(params.get('include_fail_fullscreen', True))
         self.excel_filename_input.setText(params.get('excel_filename', ''))
         self.export_text_checkbox.setChecked(params.get('export_text', True))
         self.send_slack_checkbox.setChecked(params.get('send_slack', False))
@@ -3563,6 +3578,7 @@ class ExportResultCommand(CommandBase):
         title = self.title_input.text().strip()
         export_excel = self.export_excel_checkbox.isChecked()
         include_images = self.include_images_checkbox.isChecked()
+        include_fail_fullscreen = self.include_fail_fullscreen_checkbox.isChecked()
         export_text = self.export_text_checkbox.isChecked()
         send_slack = self.send_slack_checkbox.isChecked()
         webhook_url = self.webhook_url_input.text().strip()
@@ -3605,7 +3621,7 @@ class ExportResultCommand(CommandBase):
         elif not excel_filename:
             excel_filename = "''"
             
-        return f"exportresult {title} {export_excel} {include_images} {export_text} {send_slack} {webhook_url} {create_jira} {jira_url} {jira_project} {jira_email} {jira_token} {excel_filename}"
+        return f"exportresult {title} {export_excel} {include_images} {include_fail_fullscreen} {export_text} {send_slack} {webhook_url} {create_jira} {jira_url} {jira_project} {jira_email} {jira_token} {excel_filename}"
     
     def execute(self, params, window_coords=None, processor_state=None):
         print("-"*50)
@@ -3655,6 +3671,7 @@ class ExportResultCommand(CommandBase):
         # 파라미터 파싱
         export_excel = params.get('export_excel', True) if params else True
         include_images = params.get('include_images', False) if params else False
+        include_fail_fullscreen = params.get('include_fail_fullscreen', True) if params else True
         excel_filename = params.get('excel_filename', '') if params else ''
         export_text = params.get('export_text', True) if params else True
         send_slack = params.get('send_slack', False) if params else False
@@ -3735,7 +3752,7 @@ class ExportResultCommand(CommandBase):
                 mode_text = "이어쓰기" if file_exists else "새로 생성"
                 print(f"엑셀 파일 {mode_text} 중... (이미지 포함 모드)")
                 try:
-                    self._create_excel_report(test_results, excel_path, processor_state, append=file_exists)
+                    self._create_excel_report(test_results, excel_path, processor_state, append=file_exists, include_fail_fullscreen=include_fail_fullscreen)
                     print(f"✓ 엑셀 파일 저장됨 (이미지 포함): {excel_path}")
                     excel_success = True
                 except Exception as e:
@@ -3822,7 +3839,7 @@ class ExportResultCommand(CommandBase):
             processor_state['last_report_txt_path'] = text_path if txt_success else None
             processor_state['last_report_excel_path'] = excel_path if excel_success else None
     
-    def _create_excel_report(self, test_results, excel_path, processor_state=None, append=False):
+    def _create_excel_report(self, test_results, excel_path, processor_state=None, append=False, include_fail_fullscreen=True):
         """엑셀 리포트 생성 (스크린샷 이미지 포함)
         
         Args:
@@ -3830,6 +3847,7 @@ class ExportResultCommand(CommandBase):
             excel_path: 엑셀 파일 경로
             processor_state: 프로세서 상태
             append: True면 기존 파일에 추가, False면 새로 생성
+            include_fail_fullscreen: True면 실패 항목에 전체 스크린샷 삽입, False면 삽입 안 함
         """
         from openpyxl.drawing.image import Image as OpenpyxlImage
         import os
@@ -3927,7 +3945,7 @@ class ExportResultCommand(CommandBase):
                 ws.cell(row=row, column=8, value="스크린샷 없음")
             
             # Fail인 경우 해당 앱의 전체 화면 스크린샷 추가 캡처 및 삽입
-            if result['result'] == 'Fail' and insert_images:
+            if result['result'] == 'Fail' and insert_images and include_fail_fullscreen:
                 try:
                     import pygetwindow as gw
                     
@@ -3994,6 +4012,8 @@ class ExportResultCommand(CommandBase):
                 # Pass이거나 이미지 삽입 안 하는 경우
                 if result['result'] == 'Pass':
                     ws.cell(row=row, column=9, value="Pass (불필요)")
+                elif result['result'] == 'Fail' and not include_fail_fullscreen:
+                    ws.cell(row=row, column=9, value="전체 스크린샷 제외됨")
                 else:
                     ws.cell(row=row, column=9, value="-")
         

@@ -25,24 +25,41 @@ def load_version_info():
 def create_version_file():
     """Create Windows version info file for embedding"""
     version_info = load_version_info()
-    version = version_info.get('version', '2025.01.01.0000')
+    version = version_info.get('version', '1.0-25.01.01.0000')
 
-    version_parts = version.split('.')
-    while len(version_parts) < 4:
-        version_parts.append('0')
-
-    file_version_parts = []
-    for i, part in enumerate(version_parts[:4]):
-        try:
-            num = int(part)
-            if num > 65535:
-                if i == 0 and num > 2000:
-                    num = num % 100  # 2025 → 25
-                else:
-                    num = 65535
-            file_version_parts.append(str(num))
-        except ValueError:
-            file_version_parts.append('0')
+    # 버전 형식: 1.0-yy.mm.dd.hhmm
+    # Windows 버전 형식: 1,0,yymmdd,hhmm
+    if '-' in version:
+        # 1.0-yy.mm.dd.hhmm → [1, 0, yy, mm, dd, hhmm]로 분할
+        major_minor, date_time = version.split('-')
+        major, minor = major_minor.split('.')
+        date_time_parts = date_time.split('.')
+        
+        # Windows 버전은 숫자 4개: major.minor.yymmdd.hhmm
+        if len(date_time_parts) >= 4:
+            yy, mm, dd, hhmm = date_time_parts[:4]
+            yymmdd = f"{yy}{mm}{dd}"
+            file_version_parts = [major, minor, yymmdd, hhmm]
+        else:
+            file_version_parts = ['1', '0', '0', '0']
+    else:
+        # 레거시 형식 (yyyy.mm.dd.hhmm)
+        version_parts = version.split('.')
+        while len(version_parts) < 4:
+            version_parts.append('0')
+        
+        file_version_parts = []
+        for i, part in enumerate(version_parts[:4]):
+            try:
+                num = int(part)
+                if num > 65535:
+                    if i == 0 and num > 2000:
+                        num = num % 100  # 2025 → 25
+                    else:
+                        num = 65535
+                file_version_parts.append(str(num))
+            except ValueError:
+                file_version_parts.append('0')
 
     display_version = version
     file_version = ','.join(file_version_parts)
