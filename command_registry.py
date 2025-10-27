@@ -2646,6 +2646,16 @@ class TestTextCommand(CommandBase):
         text_layout.addWidget(self.text_input)
         layout.addLayout(text_layout)
         
+        # 기대값 없음 체크박스
+        no_expected_layout = QHBoxLayout()
+        no_expected_layout.addSpacing(85)  # '기대 텍스트:' 레이블 너비만큼 들여쓰기
+        self.no_expected_checkbox = QCheckBox('기대값 없음')
+        self.no_expected_checkbox.setChecked(False)  # 기본값: 체크 해제
+        self.no_expected_checkbox.setToolTip('체크하면 기대값 없이 텍스트 추출만 수행합니다. (기대 텍스트 입력값은 유지됨)')
+        no_expected_layout.addWidget(self.no_expected_checkbox)
+        no_expected_layout.addStretch()
+        layout.addLayout(no_expected_layout)
+        
         # 매칭 모드 선택
         match_layout = QHBoxLayout()
         match_layout.addWidget(QLabel('매칭 모드:'))
@@ -2703,8 +2713,8 @@ class TestTextCommand(CommandBase):
         
         try:
             import re
-            # 정규식으로 파라미터 추출: testtext "title" x y width height ocr_type "expected_text" [match_mode] [coord_mode] [repeat_mode] [max_tries] [wait_interval]
-            pattern = r'testtext\s+"([^"]+)"\s+(-?\d+)\s+(-?\d+)\s+(\d+)\s+(\d+)\s+(\w+)\s+"([^"]*)"\s*(\w*)\s*(\w*)\s*(\w*)\s*(\d*)\s*(\d*)'
+            # 정규식으로 파라미터 추출: testtext "title" x y width height ocr_type "expected_text" [match_mode] [coord_mode] [repeat_mode] [max_tries] [wait_interval] [no_expected]
+            pattern = r'testtext\s+"([^"]+)"\s+(-?\d+)\s+(-?\d+)\s+(\d+)\s+(\d+)\s+(\w+)\s+"([^"]*)"\s*(\w*)\s*(\w*)\s*(\w*)\s*(\d*)\s*(\d*)\s*(\w*)'
             match = re.match(pattern, full_command)
             
             if not match:
@@ -2726,7 +2736,8 @@ class TestTextCommand(CommandBase):
                 'coord_mode': 'scaled',  # 기본값
                 'repeat_mode': False,  # 기본값
                 'max_tries': 10,  # 기본값
-                'wait_interval': 1  # 기본값
+                'wait_interval': 1,  # 기본값
+                'no_expected': False  # 기본값
             }
             
             # match_mode 처리 (선택적)
@@ -2761,6 +2772,12 @@ class TestTextCommand(CommandBase):
                 except ValueError:
                     pass
             
+            # no_expected 처리 (선택적)
+            if len(groups) > 12 and groups[12]:
+                no_expected = groups[12].lower()
+                if no_expected in ['noexpected', 'true', '1']:
+                    parsed['no_expected'] = True
+            
             print(f"testtext 파싱 성공: {parsed}")
             return parsed
             
@@ -2786,6 +2803,10 @@ class TestTextCommand(CommandBase):
             self.ocr_combo.setCurrentIndex(0)
             
         self.text_input.setText(params.get('expected_text', ''))
+        
+        # 기대값 없음 체크박스 설정
+        no_expected = params.get('no_expected', False)
+        self.no_expected_checkbox.setChecked(no_expected)
         
         # 매칭 모드 설정 (완전일치면 1, 일부포함이면 0)
         exact_match = params.get('exact_match', False)
@@ -2820,11 +2841,21 @@ class TestTextCommand(CommandBase):
         # 반복 모드 처리
         command_str = f"testtext {title} {self.x_input.value()} {self.y_input.value()} {self.width_input.value()} {self.height_input.value()} {ocr_type} {expected_text} {match_mode} {coord_mode}"
         
+        # 반복 모드와 기대값 없음 처리
         if self.repeat_checkbox.isChecked():
             repeat_mode = 'repeat'
             max_tries = self.max_tries_input.value()
             wait_interval = self.wait_interval_input.value()
             command_str += f" {repeat_mode} {max_tries} {wait_interval}"
+            
+            # 기대값 없음 처리 (반복 모드 이후)
+            if self.no_expected_checkbox.isChecked():
+                no_expected = 'noexpected'
+                command_str += f" {no_expected}"
+        else:
+            # 반복 모드가 없을 때도 기대값 없음을 포함하려면 빈 파라미터 추가
+            if self.no_expected_checkbox.isChecked():
+                command_str += f" '' 0 0 noexpected"
         
         return command_str
     
@@ -2841,6 +2872,7 @@ class TestTextCommand(CommandBase):
         ocr_type = params.get('ocr_type', 'i2s')
         expected_text = params.get('expected_text', '')
         exact_match = params.get('exact_match', False)
+        no_expected = params.get('no_expected', False)
         
         # 반복 확인 설정
         repeat_mode = params.get('repeat_mode', False)
@@ -2859,7 +2891,10 @@ class TestTextCommand(CommandBase):
             x, y = adjusted_coords
         
         match_mode_text = "완전일치" if exact_match else "일부포함"
-        print(f"테스트 실행: {title} - 기대텍스트: '{expected_text}' (매칭모드: {match_mode_text})")
+        if no_expected:
+            print(f"테스트 실행: {title} - 기대값 없음 (텍스트 추출만 수행)")
+        else:
+            print(f"테스트 실행: {title} - 기대텍스트: '{expected_text}' (매칭모드: {match_mode_text})")
         
         # 반복 실행 로직
         final_result = None
@@ -2904,7 +2939,21 @@ class TestTextCommand(CommandBase):
                 
                 print(f"OCR 결과: '{extracted_text}'")
                 
-                # 텍스트 매칭 확인
+                # 기대값 없음일 경우 텍스트 추출만 수행
+                if no_expected:
+                    print(f"✓ 텍스트 추출 완료: '{extracted_text}'")
+                    final_result = {
+                        'title': title,
+                        'expected_text': '(기대값 없음)',
+                        'extracted_text': extracted_text,
+                        'result': 'Pass',
+                        'screenshot_path': screenshot_path,
+                        'match_mode': '텍스트 추출',
+                        'attempt': current_try
+                    }
+                    break
+                
+                # 텍스트 매칭 확인 (기대값이 있을 경우만)
                 match_found = False
                 if exact_match:
                     # 완전일치: OCR 결과가 기대 텍스트와 정확히 일치하는지 확인
@@ -3314,6 +3363,15 @@ class ExportResultCommand(CommandBase):
         filename_layout.addWidget(self.excel_filename_input)
         layout.addLayout(filename_layout)
         
+        # 스크린샷 경로 출력 옵션 (엑셀 하위 옵션)
+        screenshot_path_layout = QHBoxLayout()
+        screenshot_path_layout.addSpacing(20)  # 들여쓰기
+        self.include_screenshot_path_checkbox = QCheckBox('엑셀에 스크린샷 경로 출력')
+        self.include_screenshot_path_checkbox.setChecked(False)  # 기본값: 체크 해제
+        self.include_screenshot_path_checkbox.setToolTip('체크하면 엑셀 파일에 스크린샷 경로를 포함합니다.')
+        screenshot_path_layout.addWidget(self.include_screenshot_path_checkbox)
+        layout.addLayout(screenshot_path_layout)
+        
         # 구분선
         separator2 = QLabel("─" * 60)
         separator2.setStyleSheet("color: gray;")
@@ -3436,6 +3494,7 @@ class ExportResultCommand(CommandBase):
             self.include_images_checkbox.setEnabled(enabled)
             self.include_fail_fullscreen_checkbox.setEnabled(enabled)
             self.excel_filename_input.setEnabled(enabled)
+            self.include_screenshot_path_checkbox.setEnabled(enabled)
             if not enabled:
                 self.include_images_checkbox.setChecked(False)
         
@@ -3496,10 +3555,11 @@ class ExportResultCommand(CommandBase):
                 'jira_project': '',
                 'jira_email': '',
                 'jira_token': '',
-                'excel_filename': ''  # 맨 뒤에 추가 (하위 호환성 유지)
+                'excel_filename': '',
+                'include_screenshot_path': False  # 맨 뒤에 추가 (하위 호환성 유지)
             }
             
-            # 파라미터 파싱: [title] [export_excel] [include_images] [include_fail_fullscreen] [export_text] [send_slack] [webhook_url] [create_jira] [jira_url] [jira_project] [jira_email] [jira_token] [excel_filename]
+            # 파라미터 파싱: [title] [export_excel] [include_images] [include_fail_fullscreen] [export_text] [send_slack] [webhook_url] [create_jira] [jira_url] [jira_project] [jira_email] [jira_token] [excel_filename] [include_screenshot_path]
             if len(tokens) > 0:
                 value = tokens[0].strip('"')  # 큰따옴표 제거
                 parsed['title'] = '' if value in ["''", '""', ''] else value
@@ -3533,6 +3593,8 @@ class ExportResultCommand(CommandBase):
             if len(tokens) > 12:
                 value = tokens[12].strip('"')  # 큰따옴표 제거
                 parsed['excel_filename'] = '' if value in ["''", '""', ''] else value
+            if len(tokens) > 13:
+                parsed['include_screenshot_path'] = tokens[13].lower() == 'true'
             
             print(f"exportresult 파싱 성공: {parsed}")
             return parsed
@@ -3554,7 +3616,8 @@ class ExportResultCommand(CommandBase):
                 'jira_project': '',
                 'jira_email': '',
                 'jira_token': '',
-                'excel_filename': ''  # 맨 뒤에 추가 (하위 호환성 유지)
+                'excel_filename': '',
+                'include_screenshot_path': False  # 맨 뒤에 추가 (하위 호환성 유지)
             }
     
     def set_ui_values(self, params):
@@ -3565,6 +3628,7 @@ class ExportResultCommand(CommandBase):
         self.include_images_checkbox.setChecked(params.get('include_images', False))
         self.include_fail_fullscreen_checkbox.setChecked(params.get('include_fail_fullscreen', True))
         self.excel_filename_input.setText(params.get('excel_filename', ''))
+        self.include_screenshot_path_checkbox.setChecked(params.get('include_screenshot_path', False))
         self.export_text_checkbox.setChecked(params.get('export_text', True))
         self.send_slack_checkbox.setChecked(params.get('send_slack', False))
         self.webhook_url_input.setText(params.get('webhook_url', ''))
@@ -3587,7 +3651,8 @@ class ExportResultCommand(CommandBase):
         jira_project = self.jira_project_input.text().strip()
         jira_email = self.jira_email_input.text().strip()
         jira_token = self.jira_token_input.text().strip()
-        excel_filename = self.excel_filename_input.text().strip()  # 맨 뒤로 이동
+        excel_filename = self.excel_filename_input.text().strip()
+        include_screenshot_path = self.include_screenshot_path_checkbox.isChecked()  # 맨 뒤로 이동
         
         # 띄어쓰기가 있는 제목은 큰따옴표로 감싸기
         if title and ' ' in title:
@@ -3615,13 +3680,13 @@ class ExportResultCommand(CommandBase):
         if not jira_token:
             jira_token = "''"
         
-        # 엑셀 파일명 처리 (맨 뒤)
+        # 엑셀 파일명 처리
         if excel_filename and ' ' in excel_filename:
             excel_filename = f'"{excel_filename}"'
         elif not excel_filename:
             excel_filename = "''"
             
-        return f"exportresult {title} {export_excel} {include_images} {include_fail_fullscreen} {export_text} {send_slack} {webhook_url} {create_jira} {jira_url} {jira_project} {jira_email} {jira_token} {excel_filename}"
+        return f"exportresult {title} {export_excel} {include_images} {include_fail_fullscreen} {export_text} {send_slack} {webhook_url} {create_jira} {jira_url} {jira_project} {jira_email} {jira_token} {excel_filename} {include_screenshot_path}"
     
     def execute(self, params, window_coords=None, processor_state=None):
         print("-"*50)
@@ -3673,6 +3738,7 @@ class ExportResultCommand(CommandBase):
         include_images = params.get('include_images', False) if params else False
         include_fail_fullscreen = params.get('include_fail_fullscreen', True) if params else True
         excel_filename = params.get('excel_filename', '') if params else ''
+        include_screenshot_path = params.get('include_screenshot_path', False) if params else False
         export_text = params.get('export_text', True) if params else True
         send_slack = params.get('send_slack', False) if params else False
         webhook_url = params.get('webhook_url', '') if params else ''
@@ -3752,7 +3818,7 @@ class ExportResultCommand(CommandBase):
                 mode_text = "이어쓰기" if file_exists else "새로 생성"
                 print(f"엑셀 파일 {mode_text} 중... (이미지 포함 모드)")
                 try:
-                    self._create_excel_report(test_results, excel_path, processor_state, append=file_exists, include_fail_fullscreen=include_fail_fullscreen)
+                    self._create_excel_report(test_results, excel_path, processor_state, append=file_exists, include_fail_fullscreen=include_fail_fullscreen, include_screenshot_path=include_screenshot_path)
                     print(f"✓ 엑셀 파일 저장됨 (이미지 포함): {excel_path}")
                     excel_success = True
                 except Exception as e:
@@ -3760,7 +3826,7 @@ class ExportResultCommand(CommandBase):
                     # 이미지 포함 모드 실패 시 안전 모드로 fallback
                     try:
                         print("안전 모드로 fallback 시도...")
-                        self._create_excel_report_safe(test_results, excel_path, processor_state, append=file_exists)
+                        self._create_excel_report_safe(test_results, excel_path, processor_state, append=file_exists, include_screenshot_path=include_screenshot_path)
                         print(f"✓ 엑셀 파일 저장됨 (안전 모드 fallback): {excel_path}")
                         excel_success = True
                     except Exception as e2:
@@ -3770,7 +3836,7 @@ class ExportResultCommand(CommandBase):
                 mode_text = "이어쓰기" if file_exists else "새로 생성"
                 print(f"엑셀 파일 {mode_text} 중... (안전 모드 - 이미지 제외)")
                 try:
-                    self._create_excel_report_safe(test_results, excel_path, processor_state, append=file_exists)
+                    self._create_excel_report_safe(test_results, excel_path, processor_state, append=file_exists, include_screenshot_path=include_screenshot_path)
                     print(f"✓ 엑셀 파일 저장됨 (안전 모드): {excel_path}")
                     excel_success = True
                 except Exception as e:
@@ -3838,8 +3904,13 @@ class ExportResultCommand(CommandBase):
         if processor_state is not None:
             processor_state['last_report_txt_path'] = text_path if txt_success else None
             processor_state['last_report_excel_path'] = excel_path if excel_success else None
+            
+            # 엑셀 파일 생성이 성공했다면 test_results 초기화 (중복 누적 방지)
+            if excel_success and 'test_results' in processor_state:
+                print(f"✓ 내보낸 테스트 결과 {len(test_results)}개 초기화됨")
+                processor_state['test_results'] = []
     
-    def _create_excel_report(self, test_results, excel_path, processor_state=None, append=False, include_fail_fullscreen=True):
+    def _create_excel_report(self, test_results, excel_path, processor_state=None, append=False, include_fail_fullscreen=True, include_screenshot_path=False):
         """엑셀 리포트 생성 (스크린샷 이미지 포함)
         
         Args:
@@ -3848,6 +3919,7 @@ class ExportResultCommand(CommandBase):
             processor_state: 프로세서 상태
             append: True면 기존 파일에 추가, False면 새로 생성
             include_fail_fullscreen: True면 실패 항목에 전체 스크린샷 삽입, False면 삽입 안 함
+            include_screenshot_path: True면 스크린샷 경로 출력, False면 출력 안 함
         """
         from openpyxl.drawing.image import Image as OpenpyxlImage
         import os
@@ -3902,7 +3974,7 @@ class ExportResultCommand(CommandBase):
             ws.cell(row=row, column=4, value=result['expected_text'])
             ws.cell(row=row, column=5, value=result['extracted_text'])
             ws.cell(row=row, column=6, value=result.get('match_mode', 'N/A'))
-            ws.cell(row=row, column=7, value=result['screenshot_path'])
+            ws.cell(row=row, column=7, value=result['screenshot_path'] if include_screenshot_path else '-')
             
             # 행 높이를 기본값으로 고정 (이미지 크기와 무관)
             ws.row_dimensions[row].height = default_row_height
@@ -4017,28 +4089,29 @@ class ExportResultCommand(CommandBase):
                 else:
                     ws.cell(row=row, column=9, value="-")
         
-        # 요약 시트 추가
-        ws_summary = wb.create_sheet("요약")
-        total_tests = len(test_results)
-        passed_tests = len([r for r in test_results if r['result'] == 'Pass'])
-        failed_tests = total_tests - passed_tests
-        
-        ws_summary.cell(row=1, column=1, value="테스트 요약")
-        ws_summary.cell(row=2, column=1, value="총 테스트")
-        ws_summary.cell(row=2, column=2, value=total_tests)
-        ws_summary.cell(row=3, column=1, value="Pass")
-        ws_summary.cell(row=3, column=2, value=passed_tests)
-        ws_summary.cell(row=4, column=1, value="Fail")
-        ws_summary.cell(row=4, column=2, value=failed_tests)
-        ws_summary.cell(row=5, column=1, value="성공률")
-        ws_summary.cell(row=5, column=2, value=f"{(passed_tests/total_tests*100):.1f}%")
-        
-        # 실패한 테스트 목록
-        if failed_tests > 0:
-            ws_summary.cell(row=7, column=1, value="실패한 테스트:")
-            failed_titles = [r['title'] for r in test_results if r['result'] == 'Fail']
-            for i, title in enumerate(failed_titles, 8):
-                ws_summary.cell(row=i, column=1, value=f"• {title}")
+        # 요약 시트 추가 (append 모드가 아닐 때만 생성)
+        if not append:
+            ws_summary = wb.create_sheet("요약")
+            total_tests = len(test_results)
+            passed_tests = len([r for r in test_results if r['result'] == 'Pass'])
+            failed_tests = total_tests - passed_tests
+            
+            ws_summary.cell(row=1, column=1, value="테스트 요약")
+            ws_summary.cell(row=2, column=1, value="총 테스트")
+            ws_summary.cell(row=2, column=2, value=total_tests)
+            ws_summary.cell(row=3, column=1, value="Pass")
+            ws_summary.cell(row=3, column=2, value=passed_tests)
+            ws_summary.cell(row=4, column=1, value="Fail")
+            ws_summary.cell(row=4, column=2, value=failed_tests)
+            ws_summary.cell(row=5, column=1, value="성공률")
+            ws_summary.cell(row=5, column=2, value=f"{(passed_tests/total_tests*100):.1f}%")
+            
+            # 실패한 테스트 목록
+            if failed_tests > 0:
+                ws_summary.cell(row=7, column=1, value="실패한 테스트:")
+                failed_titles = [r['title'] for r in test_results if r['result'] == 'Fail']
+                for i, title in enumerate(failed_titles, 8):
+                    ws_summary.cell(row=i, column=1, value=f"• {title}")
         
         # 열 너비 자동 조정
         for col in ws.columns:
@@ -4065,7 +4138,7 @@ class ExportResultCommand(CommandBase):
         # 파일 저장 (UTF-8 인코딩으로 처리)
         wb.save(excel_path)
     
-    def _create_excel_report_safe(self, test_results, excel_path, processor_state=None, append=False):
+    def _create_excel_report_safe(self, test_results, excel_path, processor_state=None, append=False, include_screenshot_path=False):
         """엑셀 리포트 생성 (안전 모드 - 이미지 없음)
         
         Args:
@@ -4073,6 +4146,7 @@ class ExportResultCommand(CommandBase):
             excel_path: 엑셀 파일 경로
             processor_state: 프로세서 상태
             append: True면 기존 파일에 추가, False면 새로 생성
+            include_screenshot_path: True면 스크린샷 경로 출력, False면 출력 안 함
         """
         # 기존 파일이 있고 append 모드면 로드, 없으면 새로 생성
         if append and os.path.exists(excel_path):
@@ -4112,68 +4186,69 @@ class ExportResultCommand(CommandBase):
             ws.cell(row=row, column=4, value=result['expected_text'])
             ws.cell(row=row, column=5, value=result['extracted_text'])
             ws.cell(row=row, column=6, value=result.get('match_mode', 'N/A'))
-            ws.cell(row=row, column=7, value=result['screenshot_path'])
+            ws.cell(row=row, column=7, value=result['screenshot_path'] if include_screenshot_path else '-')
         
-        # 요약 시트 추가
-        ws_summary = wb.create_sheet("요약")
-        total_tests = len(test_results)
-        passed_tests = len([r for r in test_results if r['result'] == 'Pass'])
-        failed_tests = total_tests - passed_tests
-        
-        ws_summary.cell(row=1, column=1, value="테스트 요약")
-        ws_summary.cell(row=2, column=1, value="총 테스트")
-        ws_summary.cell(row=2, column=2, value=total_tests)
-        ws_summary.cell(row=3, column=1, value="Pass")
-        ws_summary.cell(row=3, column=2, value=passed_tests)
-        ws_summary.cell(row=4, column=1, value="Fail")
-        ws_summary.cell(row=4, column=2, value=failed_tests)
-        ws_summary.cell(row=5, column=1, value="성공률")
-        ws_summary.cell(row=5, column=2, value=f"{(passed_tests/total_tests*100):.1f}%")
-        
-        # 실행 환경 정보 추가
-        current_row = 7
-        if processor_state:
-            window_info = processor_state.get('window_info', {})
-            executed_apps = processor_state.get('executed_apps', [])
-            # 현재 실제 선택된 윈도우로 업데이트
-            self._update_current_window_info(window_info)
+        # 요약 시트 추가 (append 모드가 아닐 때만 생성)
+        if not append:
+            ws_summary = wb.create_sheet("요약")
+            total_tests = len(test_results)
+            passed_tests = len([r for r in test_results if r['result'] == 'Pass'])
+            failed_tests = total_tests - passed_tests
             
-            if window_info or executed_apps:
-                ws_summary.cell(row=current_row, column=1, value="실행 환경 정보:")
-                current_row += 1
+            ws_summary.cell(row=1, column=1, value="테스트 요약")
+            ws_summary.cell(row=2, column=1, value="총 테스트")
+            ws_summary.cell(row=2, column=2, value=total_tests)
+            ws_summary.cell(row=3, column=1, value="Pass")
+            ws_summary.cell(row=3, column=2, value=passed_tests)
+            ws_summary.cell(row=4, column=1, value="Fail")
+            ws_summary.cell(row=4, column=2, value=failed_tests)
+            ws_summary.cell(row=5, column=1, value="성공률")
+            ws_summary.cell(row=5, column=2, value=f"{(passed_tests/total_tests*100):.1f}%")
+            
+            # 실행 환경 정보 추가
+            current_row = 7
+            if processor_state:
+                window_info = processor_state.get('window_info', {})
+                executed_apps = processor_state.get('executed_apps', [])
+                # 현재 실제 선택된 윈도우로 업데이트
+                self._update_current_window_info(window_info)
                 
-                if window_info:
-                    target_app = window_info.get('target_app', '알 수 없음')
-                    ws_summary.cell(row=current_row, column=1, value="• 대상 윈도우:")
-                    ws_summary.cell(row=current_row, column=2, value=target_app)
+                if window_info or executed_apps:
+                    ws_summary.cell(row=current_row, column=1, value="실행 환경 정보:")
                     current_row += 1
                     
-                    execution_file = window_info.get('execution_file')
-                    if execution_file:
-                        ws_summary.cell(row=current_row, column=1, value="• 명령어 파일:")
-                        ws_summary.cell(row=current_row, column=2, value=execution_file)
-                    else:
-                        ws_summary.cell(row=current_row, column=1, value="• 명령어 파일:")
-                        ws_summary.cell(row=current_row, column=2, value="없음 (직접 설정)")
-                    current_row += 1
-                
-                if executed_apps:
-                    for app_info in executed_apps:
-                        if app_info.get('file_path'):
-                            ws_summary.cell(row=current_row, column=1, value="• 대상 앱 실행 경로:")
-                            ws_summary.cell(row=current_row, column=2, value=app_info['file_path'])
-                            current_row += 1
-                            break  # 첫 번째 실행 파일만 표시
-                
-                current_row += 1  # 빈 행 추가
-        
-        # 실패한 테스트 목록
-        if failed_tests > 0:
-            ws_summary.cell(row=current_row, column=1, value="실패한 테스트:")
-            current_row += 1
-            failed_titles = [r['title'] for r in test_results if r['result'] == 'Fail']
-            for i, title in enumerate(failed_titles):
-                ws_summary.cell(row=current_row + i, column=1, value=f"• {title}")
+                    if window_info:
+                        target_app = window_info.get('target_app', '알 수 없음')
+                        ws_summary.cell(row=current_row, column=1, value="• 대상 윈도우:")
+                        ws_summary.cell(row=current_row, column=2, value=target_app)
+                        current_row += 1
+                        
+                        execution_file = window_info.get('execution_file')
+                        if execution_file:
+                            ws_summary.cell(row=current_row, column=1, value="• 명령어 파일:")
+                            ws_summary.cell(row=current_row, column=2, value=execution_file)
+                        else:
+                            ws_summary.cell(row=current_row, column=1, value="• 명령어 파일:")
+                            ws_summary.cell(row=current_row, column=2, value="없음 (직접 설정)")
+                        current_row += 1
+                    
+                    if executed_apps:
+                        for app_info in executed_apps:
+                            if app_info.get('file_path'):
+                                ws_summary.cell(row=current_row, column=1, value="• 대상 앱 실행 경로:")
+                                ws_summary.cell(row=current_row, column=2, value=app_info['file_path'])
+                                current_row += 1
+                                break  # 첫 번째 실행 파일만 표시
+                    
+                    current_row += 1  # 빈 행 추가
+            
+            # 실패한 테스트 목록
+            if failed_tests > 0:
+                ws_summary.cell(row=current_row, column=1, value="실패한 테스트:")
+                current_row += 1
+                failed_titles = [r['title'] for r in test_results if r['result'] == 'Fail']
+                for i, title in enumerate(failed_titles):
+                    ws_summary.cell(row=current_row + i, column=1, value=f"• {title}")
         
         # 열 너비 자동 조정
         for col in ws.columns:

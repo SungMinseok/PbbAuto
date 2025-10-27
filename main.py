@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QL
                              QTableWidgetItem, QHeaderView, QTabWidget, QTextEdit,
                              QDateEdit, QTimeEdit, QDialogButtonBox, QSpinBox)
 from PyQt5.QtCore import QTimer, Qt, QDate, QTime, pyqtSignal
-from PyQt5.QtGui import QIcon, QFont, QTextCursor
+from PyQt5.QtGui import QIcon, QFont, QTextCursor, QIntValidator
         # 분리된 모듈들 import (print 오버라이드 후)
 from constants import current_dir, bundles_dir
 from utils import (load_config, save_config, auto_detect_tesseract, take_screenshot, 
@@ -158,11 +158,15 @@ class PbbAutoApp(QWidget):
         #self.log_box.setMaximumBlockCount(3)
         self.log_box.setMaximumHeight(90)
         self.log_box.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        # 가로 스크롤바 제거
+        self.log_box.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        # 자동 줄바꿈
+        self.log_box.setLineWrapMode(QTextEdit.WidgetWidth)
         # ✅ 핵심 해결책: 고정폭 폰트 설정
         font = QFont("Consolas" if sys.platform == "win32" else "Monospace")
         font.setPointSize(9) # 폰트 크기 조정 가능
         self.log_box.setFont(font)
-        self.log_box.setLineWrapMode(QTextEdit.NoWrap)
+        #self.log_box.setLineWrapMode(QTextEdit.NoWrap)
         main_layout.addWidget(self.log_box)
         self.log_lines = []
 
@@ -250,6 +254,9 @@ class PbbAutoApp(QWidget):
         execute_layout = QHBoxLayout()
         self.execute_count_label = QLabel('실행횟수', self)
         self.execute_count_lineEdit = QLineEdit(self)
+        self.execute_count_lineEdit.setPlaceholderText("1")
+        #1이상 값만
+        self.execute_count_lineEdit.setValidator(QIntValidator(1, 1000))
         self.execute_count_lineEdit.setFixedWidth(50)
         self.open_report_checkbox = QCheckBox('Open Report', self)
         self.open_report_checkbox.setChecked(True)
@@ -1834,11 +1841,7 @@ class PbbAutoApp(QWidget):
                 else:
                     commands.append(item_text.split('#')[0].strip())
         
-        if not commands:
-            QMessageBox.warning(self, "Schedule", "스케줄할 명령어를 선택해주세요.")
-            return
-        
-        # 스케줄 다이얼로그 열기
+        # 스케줄 다이얼로그 열기 (명령어가 없어도 열림 - 스케줄 관리 가능)
         dialog = ScheduleDialog(commands, self.schedule_manager, self)
         if dialog.exec_() == QDialog.Accepted:
             self.update_schedule_status()
@@ -2348,15 +2351,15 @@ class ScheduleDialog(QDialog):
         # 탭 위젯 생성
         self.tab_widget = QTabWidget()
         
-        # 탭 1: 새 스케줄 추가
-        self.add_tab = QWidget()
-        self.init_add_tab()
-        self.tab_widget.addTab(self.add_tab, "새 스케줄 추가")
-        
-        # 탭 2: 기존 스케줄 관리
+        # 탭 1: 기존 스케줄 관리 (첫 번째 탭)
         self.manage_tab = QWidget()
         self.init_manage_tab()
         self.tab_widget.addTab(self.manage_tab, "스케줄 관리")
+        
+        # 탭 2: 새 스케줄 추가
+        self.add_tab = QWidget()
+        self.init_add_tab()
+        self.tab_widget.addTab(self.add_tab, "새 스케줄 추가")
         
         layout.addWidget(self.tab_widget)
         

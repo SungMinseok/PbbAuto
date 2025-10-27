@@ -354,26 +354,36 @@ def is_keep_alive_running():
 _original_brightness = None  # 원래 밝기 저장용
 
 def get_current_brightness():
-    """현재 화면 밝기 가져오기 (0-100%)"""
+    """현재 화면 밝기 가져오기 (0-100%) - 외장/내장 모니터 자동 감지"""
     try:
+        # 우선 외장 모니터(DDC/CI) 시도
+        from monitorcontrol import get_monitors
+        for monitor in get_monitors():
+            with monitor:
+                brightness = monitor.get_luminance()
+                print(f"현재 화면 밝기 (외장 모니터): {brightness}%")
+                return brightness
+    except Exception:
+        pass
+
+    try:
+        # 내장 디스플레이 (CIM/WMI)
         import subprocess
-        # PowerShell 명령어로 현재 밝기 가져오기
-        result = subprocess.run([
-            'powershell', '-Command',
-            '(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightness).CurrentBrightness'
-        ], capture_output=True, text=True, timeout=5)
-        
-        if result.returncode == 0 and result.stdout.strip():
+        command = "(Get-CimInstance -Namespace root/WMI -Class WmiMonitorBrightness).CurrentBrightness"
+        result = subprocess.run(['powershell', '-Command', command],
+                                capture_output=True, text=True, timeout=5)
+        if result.returncode == 0 and result.stdout.strip().isdigit():
             brightness = int(result.stdout.strip())
-            print(f"현재 화면 밝기: {brightness}%")
+            print(f"현재 화면 밝기 (내장 디스플레이): {brightness}%")
             return brightness
-    except Exception as e:
-        print(f"화면 밝기 조회 실패: {e}")
-    
-    return None
+    except Exception:
+        pass
+
+    print("⚠️ 현재 밝기를 가져올 수 없어 기본값 80%로 사용합니다")
+    return 80
 
 def set_screen_brightness(brightness_percent):
-    """화면 밝기 설정 (0-100%)
+    """화면 밝기 설정 (0-100%) - 외장/내장 모니터 자동 감지
     
     Args:
         brightness_percent: 0(완전 어둠) ~ 100(최대 밝기)
@@ -381,28 +391,44 @@ def set_screen_brightness(brightness_percent):
     Returns:
         bool: 성공 여부
     """
+    global _original_brightness
+    
+    brightness_percent = max(0, min(100, int(brightness_percent)))
+    if _original_brightness is None:
+        _original_brightness = get_current_brightness()
+
     try:
-        # 범위 확인
-        brightness_percent = max(0, min(100, int(brightness_percent)))
-        
+        # 외장 모니터(DDC/CI) 시도
+        try:
+            from monitorcontrol import get_monitors
+            for monitor in get_monitors():
+                with monitor:
+                    monitor.set_luminance(brightness_percent)
+            print(f"✓ 외장 모니터 밝기를 {brightness_percent}%로 설정했습니다")
+            return True
+        except Exception:
+            pass
+
+        # 내장 디스플레이 (CIM)
         import subprocess
-        # PowerShell 명령어로 밝기 설정
         command = f"""
 $brightness = {brightness_percent}
-(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1, $brightness)
+$monitor = Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightnessMethods
+if ($monitor) {{
+    $monitor.WmiSetBrightness(1, $brightness)
+}} else {{
+    Write-Error '모니터 밝기 인터페이스를 찾을 수 없습니다.'
+}}
 """
-        
-        result = subprocess.run([
-            'powershell', '-Command', command
-        ], capture_output=True, text=True, timeout=10)
-        
+        result = subprocess.run(['powershell', '-Command', command],
+                                capture_output=True, text=True, timeout=10)
         if result.returncode == 0:
             print(f"✓ 화면 밝기가 {brightness_percent}%로 설정되었습니다")
             return True
         else:
             print(f"화면 밝기 설정 실패: {result.stderr}")
             return False
-            
+
     except Exception as e:
         print(f"화면 밝기 설정 중 오류: {e}")
         return False
@@ -420,10 +446,8 @@ def dim_screen(target_brightness=5):
     
     try:
         # 현재 밝기 저장
-        _original_brightness = get_current_brightness()
         if _original_brightness is None:
-            print("⚠️ 현재 밝기를 가져올 수 없어 기본값 80%로 설정합니다")
-            _original_brightness = 80  # 기본값
+            _original_brightness = get_current_brightness()
         
         # 화면을 어둡게 설정
         success = set_screen_brightness(target_brightness)
@@ -447,12 +471,13 @@ def restore_screen_brightness():
     
     try:
         if _original_brightness is None:
-            print("⚠️ 저장된 원래 밝기가 없습니다. 80%로 복구합니다")
-            _original_brightness = 80
+            print("⚠️ 저장된 원래 밝기가 없습니다")
+            return False
         
+        print(f"↩ 이전 밝기({_original_brightness}%)로 복구합니다")
         success = set_screen_brightness(_original_brightness)
         if success:
-            print(f"☀️ 화면 밝기가 복구되었습니다 ({_original_brightness}%)")
+            print(f"☀️ 화면 밝기가 복구되었습니다")
         
         # 복구 후 초기화
         _original_brightness = None

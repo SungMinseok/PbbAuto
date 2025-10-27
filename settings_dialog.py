@@ -103,6 +103,11 @@ class SettingsDialog(QDialog):
         download_official_btn = QPushButton("📥 Tesseract 공식 다운로드")
         download_official_btn.clicked.connect(self.download_tesseract_official)
         download_layout.addWidget(download_official_btn)
+
+        #tesseract ko.traineddata 다운로드
+        download_ko_traineddata_btn = QPushButton("🔗 한글 인식 데이터 다운로드")
+        download_ko_traineddata_btn.clicked.connect(self.download_ko_traineddata)
+        download_layout.addWidget(download_ko_traineddata_btn)
         
         download_github_btn = QPushButton("🔗 GitHub 릴리스")
         download_github_btn.clicked.connect(self.download_tesseract_github)
@@ -261,19 +266,33 @@ class SettingsDialog(QDialog):
     
     def download_tesseract_official(self):
         """Tesseract 공식 사이트에서 다운로드"""
-        url = "https://tesseract-ocr.github.io/tessdoc/Downloads.html"
+        url = "https://github.com/tesseract-ocr/tesseract/releases/download/5.5.0/tesseract-ocr-w64-setup-5.5.0.20241111.exe"
         try:
             webbrowser.open(url)
             QMessageBox.information(
                 self,
                 "다운로드",
-                "Tesseract 공식 다운로드 페이지를 열었습니다.\n\n"
-                "Windows Installer를 다운로드하여 설치한 후,\n"
-                "설치 경로를 다시 설정해주세요."
+                "인스톨러 다운로드가 완료되면 실행하세요.\n\n"
+                "설치 후 경로를 C:\\Program Files\\에 설치해주세요."
             )
         except Exception as e:
             QMessageBox.warning(self, "오류", f"웹페이지를 열 수 없습니다.\n\n{e}")
     
+
+    def download_ko_traineddata(self):
+        """한글 인식 데이터 다운로드"""
+        url = "https://github.com/tesseract-ocr/"
+        try:
+            webbrowser.open(url)
+            QMessageBox.information(
+                self,
+                "다운로드",
+                "tessdata_best 클릭, kor을 검색해서 kor.traineddata 다운로드 하세요.\n\n"
+                "다운로드가 완료되면 C:\\Program Files\\Tesseract-OCR\\tessdata\\ 경로에 저장하세요.\n\n"
+            )
+        except Exception as e:
+            QMessageBox.warning(self, "오류", f"웹페이지를 열 수 없습니다.\n\n{e}")
+
     def download_tesseract_github(self):
         """Tesseract GitHub 릴리스 페이지 열기"""
         url = "https://github.com/UB-Mannheim/tesseract/wiki"
