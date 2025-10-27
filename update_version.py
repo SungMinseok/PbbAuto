@@ -11,9 +11,9 @@ import sys
 def update_version(changelog_message=None):
     """version.json을 현재 시간 기반으로 업데이트"""
     
-    # 현재 시간 기반 버전 생성 (1.0-YY.MM.DD.HHMM)
+    # 현재 시간 기반 버전 생성 (YYYY.MM.DD.HHMM)
     now = datetime.now()
-    new_version = now.strftime("1.0-%y.%m.%d.%H%M")
+    new_version = now.strftime("%Y.%m.%d.%H%M")
     build_date = now.strftime("%Y-%m-%d")
     
     print(f"새 버전: {new_version}")

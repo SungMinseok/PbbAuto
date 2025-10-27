@@ -1,13 +1,25 @@
 {
-  "version": "2025.10.24.0417",
-  "build_date": "2025-10-24",
+  "version": "2025.10.28.0317",
+  "build_date": "2025-10-28",
   "update_url": "https://api.github.com/repos/SungMinseok/PbbAuto/releases/latest",
   "changelog": [
+    {
+      "version": "2025.10.28.0317",
+      "date": "2025-10-28",
+      "changes": [
+        "c:/pyenvs/pbbauto/Scripts/activate.bat"
+      ]
+    },
     {
       "version": "2025.10.24.0417",
       "date": "2025-10-24",
       "changes": [
-        "c:/pyenvs/pbbauto/Scripts/activate.bat"
+        "ExportResult: 특정 파일명 지정 시 요약시트 중복 생성 문제 수정",
+        "ExportResult: 스크린샷 경로 출력 체크박스 추가 (기본값: 해제)",
+        "TestText: 기대값없음 체크박스 값 저장 문제 수정",
+        "화면 밝기 기능 개선 (외장/내장 모니터 자동 감지)",
+        "Schedule 버튼: 번들 0개일 때도 열리도록 수정",
+        "Schedule 다이얼로그: 첫 탭을 스케쥴 관리로 변경"
       ]
     },
     {
