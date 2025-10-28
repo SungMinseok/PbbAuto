@@ -1,8 +1,15 @@
 {
-  "version": "2025.10.29.0316",
+  "version": "2025.10.29.0317",
   "build_date": "2025-10-29",
   "update_url": "https://api.github.com/repos/SungMinseok/PbbAuto/releases/latest",
   "changelog": [
+    {
+      "version": "2025.10.29.0317",
+      "date": "2025-10-29",
+      "changes": [
+        "TriggerEditor에 녹화 버튼 추가 (시작/중지 지원)&echo.PyQt5 플러그인 수집 및 패키징 기능 추가&echo.빌드 시 QT_PLUGIN_PATH 자동 설정으로 플러그인 로딩 안정화&echo.마우스·키보드 입력 녹화를 위한 RecorderThread 클래스 추가&echo.녹화된 입력 이벤트를 명령으로 변환하도록 이벤트 처리 개선&echo."
+      ]
+    },
     {
       "version": "2025.10.29.0316",
       "date": "2025-10-29",
