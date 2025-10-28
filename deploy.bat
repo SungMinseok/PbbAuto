@@ -12,7 +12,7 @@ echo.
 echo [0/6] Activate virtual environment...
 echo.
 
-set VENV1=C:\pyenvs\pbbauto\Scripts\activate.bat
+set VENV1=C:\Users\성민석\OneDrive - KRAFTON\PyProject\PbbAuto\.venv\Scripts\activate.bat
 call "%VENV1%"
 echo.
 echo [1/6] Update version.json...
