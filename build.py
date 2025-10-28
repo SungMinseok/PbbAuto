@@ -121,20 +121,78 @@ def create_spec_file():
     datas_str = ",\n        ".join(datas_list)
 
     spec_content = f"""# -*- mode: python ; coding: utf-8 -*-
+import os
+import sys
 
 block_cipher = None
 
+# PyQt5 플러그인 수동 수집
+def collect_pyqt5_data():
+    datas = []
+    binaries = []
+    
+    try:
+        import PyQt5
+        pyqt5_path = os.path.dirname(PyQt5.__file__)
+        print(f"[DEBUG] PyQt5 path: {{pyqt5_path}}")
+        
+        # Qt5/plugins 디렉토리 찾기
+        plugins_dir = os.path.join(pyqt5_path, 'Qt5', 'plugins')
+        if not os.path.exists(plugins_dir):
+            plugins_dir = os.path.join(pyqt5_path, 'Qt', 'plugins')
+        
+        print(f"[DEBUG] Plugins dir: {{plugins_dir}}, exists: {{os.path.exists(plugins_dir)}}")
+        
+        if os.path.exists(plugins_dir):
+            # platforms 플러그인 (필수)
+            platforms_dir = os.path.join(plugins_dir, 'platforms')
+            if os.path.exists(platforms_dir):
+                for file in os.listdir(platforms_dir):
+                    if file.endswith('.dll'):
+                        src = os.path.join(platforms_dir, file)
+                        datas.append((src, 'PyQt5/Qt5/plugins/platforms'))
+                        print(f"[DEBUG] Added platform plugin: {{file}}")
+            
+            # 기타 플러그인 디렉토리들
+            for plugin_type in ['styles', 'imageformats', 'iconengines']:
+                plugin_dir = os.path.join(plugins_dir, plugin_type)
+                if os.path.exists(plugin_dir):
+                    for file in os.listdir(plugin_dir):
+                        if file.endswith('.dll'):
+                            src = os.path.join(plugin_dir, file)
+                            datas.append((src, f'PyQt5/Qt5/plugins/{{plugin_type}}'))
+        
+        # Qt5/bin 디렉토리의 DLL 파일들
+        qt5_bin_dir = os.path.join(pyqt5_path, 'Qt5', 'bin')
+        if not os.path.exists(qt5_bin_dir):
+            qt5_bin_dir = os.path.join(pyqt5_path, 'Qt', 'bin')
+        
+        if os.path.exists(qt5_bin_dir):
+            for file in os.listdir(qt5_bin_dir):
+                if file.endswith('.dll'):
+                    src = os.path.join(qt5_bin_dir, file)
+                    binaries.append((src, '.'))
+        
+        print(f"[DEBUG] Collected {{len(datas)}} data files and {{len(binaries)}} binaries")
+    except Exception as e:
+        print(f"Warning: Could not collect PyQt5 data: {{e}}")
+    
+    return datas, binaries
+
+pyqt5_datas, pyqt5_binaries = collect_pyqt5_data()
+
 a = Analysis(
     ['main.py'],
-    pathex=[os.getcwd()],  # Include current directory
-    binaries=[],
+    pathex=[os.getcwd()],
+    binaries=pyqt5_binaries,
     datas=[
         {datas_str},
-    ],
+    ] + pyqt5_datas,
     hiddenimports=[
         'PyQt5.QtCore',
         'PyQt5.QtGui',
         'PyQt5.QtWidgets',
+        'PyQt5.sip',
         'pyautogui',
         'pygetwindow',
         'win32gui',
@@ -149,7 +207,7 @@ a = Analysis(
         'packaging',
         'unittest',
     ],
-    hookspath=[],
+    hookspath=[os.getcwd()],
     hooksconfig={{}},
     runtime_hooks=[],
     excludes=[
@@ -256,12 +314,36 @@ def build_exe(spec_file):
     print("[INFO] Build directories cleaned.")
 
     try:
-        cmd = ['pyinstaller', '--clean', spec_file]
-        subprocess.run(cmd, check=True)
+        # PyQt5 경로 설정
+        import PyQt5
+        pyqt5_path = os.path.dirname(PyQt5.__file__)
+        qt_plugin_path = os.path.join(pyqt5_path, 'Qt5', 'plugins')
+        
+        # 환경 변수 설정
+        env = os.environ.copy()
+        env['QT_PLUGIN_PATH'] = qt_plugin_path
+        env['QT_QPA_PLATFORM_PLUGIN_PATH'] = os.path.join(qt_plugin_path, 'platforms')
+        
+        # PyInstaller를 Python 모듈로 직접 호출 (출력을 직접 표시)
+        cmd = [sys.executable, '-m', 'PyInstaller', '--clean', spec_file]
+        print(f"[INFO] Running command: {' '.join(cmd)}")
+        print(f"[INFO] QT_PLUGIN_PATH={qt_plugin_path}")
+        result = subprocess.run(cmd, check=False, env=env)
+        
+        if result.returncode != 0:
+            raise Exception(f"PyInstaller failed with code {result.returncode}")
+        
+        # EXE 파일 생성 확인
+        exe_path = 'dist/BundleEditor.exe'
+        if not os.path.exists(exe_path):
+            raise Exception(f"EXE file not found at: {exe_path}")
+        
         print("\n[DONE] Build successful! EXE located in: dist/BundleEditor.exe")
         return True
     except Exception as e:
         print(f"\n[FAILED] Build failed: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 

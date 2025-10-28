@@ -9,6 +9,19 @@ import threading
 import subprocess
 import traceback
 from datetime import datetime
+
+# Qt 플랫폼 플러그인 경로 설정 (PyQt5 import 전에 설정 필요)
+if hasattr(sys, '_MEIPASS'):
+    # PyInstaller로 빌드된 실행 파일인 경우
+    qt_plugin_path = os.path.join(sys._MEIPASS, 'PyQt5', 'Qt5', 'plugins')
+else:
+    # 개발 환경인 경우
+    venv_path = os.path.join(os.path.dirname(__file__), '.venv')
+    qt_plugin_path = os.path.join(venv_path, 'Lib', 'site-packages', 'PyQt5', 'Qt5', 'plugins')
+
+os.environ['QT_PLUGIN_PATH'] = qt_plugin_path
+os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = os.path.join(qt_plugin_path, 'platforms')
+
 import pygetwindow as gw
 import pyautogui as pag
 from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, 

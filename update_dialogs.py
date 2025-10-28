@@ -288,14 +288,22 @@ class AboutDialog(QDialog):
         changelog_text.setReadOnly(True)
         changelog_text.setMaximumHeight(150)
         
-        # 최근 변경사항 표시
+        # version.json에서 모든 변경사항 표시, 최근 것부터 표시, 빌드명 개행 변경사항 형식
         changelog = version_info.get('changelog', [])
         if changelog:
-            latest_changes = changelog[0].get('changes', [])
-            changelog_text.setPlainText('\n'.join(f"• {change}" for change in latest_changes))
+            # 최신 항목이 먼저 나오도록 역순 정렬
+            changelog_texts = []
+            for item in sorted(changelog, key=lambda x: x.get('date', ''), reverse=True):
+                build_name = item.get('version', 'Unknown')
+                changes = item.get('changes', [])
+                # 각 변경사항 앞에 '• ' 붙이기
+                formatted_changes = "\n".join(f"• {change}" for change in changes)
+                changelog_texts.append(f"{build_name}\n{formatted_changes}")
+            # 항목 간에는 빈 줄로 구분
+            changelog_text.setPlainText("\n\n".join(changelog_texts))
         else:
             changelog_text.setPlainText("변경사항이 없습니다.")
-        
+
         layout.addWidget(changelog_text)
         
         # 업데이트 확인 버튼

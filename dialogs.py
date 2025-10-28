@@ -8,12 +8,14 @@ import logger_setup
 
 import time
 import pyautogui as pag
+import pygetwindow as gw
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
                              QComboBox, QLineEdit, QSpinBox, QDialogButtonBox, QWidget, 
                              QListWidget, QStackedWidget, QMessageBox, QListWidgetItem, QMenu, QAction,
                              QApplication)
-from PyQt5.QtCore import QTimer, Qt
+from PyQt5.QtCore import QTimer, Qt, QThread, pyqtSignal
 from command_registry import get_all_commands, get_command_names
+from pynput import mouse, keyboard
 
 
 class CommandPopup(QDialog):
@@ -297,6 +299,100 @@ class AddCommandDialog(QDialog):
         return current_action
 
 
+class RecorderThread(QThread):
+    """마우스/키보드 이벤트 녹화 스레드"""
+    
+    recording_started = pyqtSignal()
+    recording_stopped = pyqtSignal(list)  # 녹화된 이벤트 리스트 전달
+    
+    def __init__(self):
+        super().__init__()
+        self.events = []
+        self.recording = False
+        self.mouse_listener = None
+        self.keyboard_listener = None
+        self.start_time = None
+        
+    def run(self):
+        """녹화 시작"""
+        self.events = []
+        self.recording = True
+        self.start_time = time.time()
+        
+        # 마우스 리스너
+        def on_click(x, y, button, pressed):
+            if not self.recording:
+                return False
+            if pressed:  # 눌렀을 때만 기록
+                elapsed = time.time() - self.start_time
+                self.events.append({
+                    'type': 'click',
+                    'x': x,
+                    'y': y,
+                    'button': str(button),
+                    'time': elapsed
+                })
+        
+        # 키보드 리스너
+        def on_press(key):
+            if not self.recording:
+                return False
+            
+            # F11 키를 눌렀을 때 녹화 종료
+            try:
+                if key == keyboard.Key.f11:
+                    self.stop_recording()
+                    return False
+            except AttributeError:
+                pass
+            
+            # F11 키는 녹화하지 않음
+            try:
+                if key == keyboard.Key.f11:
+                    return
+            except AttributeError:
+                pass
+            
+            # 일반 키 입력 기록
+            elapsed = time.time() - self.start_time
+            try:
+                # 일반 문자 키
+                key_name = key.char if hasattr(key, 'char') else str(key)
+            except AttributeError:
+                # 특수 키 (Enter, Shift 등)
+                key_name = str(key).replace('Key.', '')
+            
+            self.events.append({
+                'type': 'press',
+                'key': key_name,
+                'time': elapsed
+            })
+        
+        # 리스너 시작
+        self.mouse_listener = mouse.Listener(on_click=on_click)
+        self.keyboard_listener = keyboard.Listener(on_press=on_press)
+        
+        self.mouse_listener.start()
+        self.keyboard_listener.start()
+        
+        self.recording_started.emit()
+        
+        # 리스너가 종료될 때까지 대기
+        self.keyboard_listener.join()
+        self.mouse_listener.stop()
+        
+        # 녹화 완료
+        self.recording_stopped.emit(self.events)
+    
+    def stop_recording(self):
+        """녹화 종료"""
+        self.recording = False
+        if self.mouse_listener:
+            self.mouse_listener.stop()
+        if self.keyboard_listener:
+            self.keyboard_listener.stop()
+
+
 class TriggerEditor(QDialog):
     """트리거 에디터 (기존과 동일하지만 AddCommandDialog가 개선됨)"""
     
@@ -305,6 +401,10 @@ class TriggerEditor(QDialog):
         self.setWindowTitle('Trigger Editor')
         self.resize(640, 400)
         self.layout = QVBoxLayout()
+        
+        # 녹화 관련 초기화
+        self.recorder = None
+        self.is_recording = False
 
         hl = QHBoxLayout()
         self.list_widget = QListWidget()
@@ -324,12 +424,16 @@ class TriggerEditor(QDialog):
         self.edit_btn = QPushButton('Edit')
         self.remove_btn = QPushButton('Remove')
         self.copy_btn = QPushButton('Copy')  # Copy 버튼 추가
+        self.record_btn = QPushButton('🔴 녹화 (F11)')  # 녹화 버튼 추가
+        self.record_btn.setShortcut('F11')
+        self.record_btn.setStyleSheet("font-weight: bold; color: red;")
         self.up_btn = QPushButton('Up')
         self.down_btn = QPushButton('Down')
         control_v.addWidget(self.add_btn)
         control_v.addWidget(self.edit_btn)
         control_v.addWidget(self.remove_btn)
         control_v.addWidget(self.copy_btn)  # Copy 버튼 추가
+        control_v.addWidget(self.record_btn)  # 녹화 버튼 추가
         control_v.addWidget(self.up_btn)
         control_v.addWidget(self.down_btn)
         control_v.addStretch()
@@ -352,6 +456,7 @@ class TriggerEditor(QDialog):
         self.edit_btn.clicked.connect(self.on_edit)
         self.remove_btn.clicked.connect(self.on_remove)
         self.copy_btn.clicked.connect(self.on_copy)  # Copy 버튼 연결 추가
+        self.record_btn.clicked.connect(self.on_record)  # 녹화 버튼 연결 추가
         self.up_btn.clicked.connect(self.on_up)
         self.down_btn.clicked.connect(self.on_down)
         self.ok_btn.clicked.connect(self.accept)
@@ -494,3 +599,163 @@ class TriggerEditor(QDialog):
         for i in range(self.list_widget.count()):
             item = self.list_widget.item(i)
             item.setCheckState(Qt.Unchecked)
+    
+    def on_record(self):
+        """녹화 시작/중지"""
+        if not self.is_recording:
+            self.start_recording()
+        else:
+            self.stop_recording()
+    
+    def start_recording(self):
+        """녹화 시작"""
+        # 부모 앱에서 현재 선택된 윈도우 정보 가져오기
+        parent_app = self.parent()
+        if not parent_app or not hasattr(parent_app, 'window_dropdown'):
+            QMessageBox.warning(self, '경고', '메인 앱의 윈도우 정보를 가져올 수 없습니다.')
+            return
+        
+        selected_window = parent_app.window_dropdown.currentText()
+        if not selected_window:
+            QMessageBox.warning(self, '경고', '먼저 윈도우를 선택해주세요.')
+            return
+        
+        self.is_recording = True
+        self.record_btn.setText('⏹️ 녹화 중지 (F11)')
+        self.record_btn.setStyleSheet("font-weight: bold; color: blue;")
+        
+        # 녹화 스레드 시작
+        self.recorder = RecorderThread()
+        self.recorder.recording_started.connect(self.on_recording_started)
+        self.recorder.recording_stopped.connect(self.on_recording_stopped)
+        self.recorder.start()
+        
+        # 팝업 없이 바로 녹화 시작
+        print("녹화 시작됨 - F11을 눌러 종료하세요.")
+    
+    def stop_recording(self):
+        """녹화 중지"""
+        if self.recorder:
+            self.recorder.stop_recording()
+    
+    def on_recording_started(self):
+        """녹화 시작 시그널 처리"""
+        print("녹화가 시작되었습니다.")
+    
+    def on_recording_stopped(self, events):
+        """녹화 종료 시그널 처리"""
+        self.is_recording = False
+        self.record_btn.setText('🔴 녹화 (F11)')
+        self.record_btn.setStyleSheet("font-weight: bold; color: red;")
+        
+        if not events:
+            print("녹화 완료 - 녹화된 이벤트가 없습니다.")
+            return
+        
+        # 이벤트를 명령어로 변환
+        commands = self.convert_events_to_commands(events)
+        
+        if not commands:
+            print(f"녹화 완료 - {len(events)}개의 이벤트가 녹화되었으나 명령어 변환에 실패했습니다.")
+            return
+        
+        # 명령어 리스트에 추가
+        for cmd in commands:
+            self.add_checkable_item(cmd)
+        
+        print(f'녹화 완료 - {len(events)}개의 이벤트가 녹화되었고, {len(commands)}개의 명령어가 추가되었습니다.')
+    
+    def convert_events_to_commands(self, events):
+        """녹화된 이벤트를 명령어로 변환"""
+        commands = []
+        
+        print(f"[DEBUG] 이벤트 변환 시작 - 총 {len(events)}개 이벤트")
+        
+        # 부모 앱에서 현재 선택된 윈도우 정보 가져오기
+        parent_app = self.parent()
+        if not parent_app or not hasattr(parent_app, 'window_dropdown'):
+            print("[DEBUG] 부모 앱을 찾을 수 없음")
+            return commands
+        
+        selected_window = parent_app.window_dropdown.currentText()
+        if not selected_window:
+            print("[DEBUG] 선택된 윈도우가 없음")
+            return commands
+        
+        print(f"[DEBUG] 선택된 윈도우: {selected_window}")
+        
+        try:
+            # 선택된 윈도우의 좌표 가져오기
+            windows = gw.getWindowsWithTitle(selected_window)
+            if not windows:
+                print("[DEBUG] 윈도우를 찾을 수 없음")
+                return commands
+            
+            window_obj = windows[0]
+            win_x = window_obj.left
+            win_y = window_obj.top
+            
+            print(f"[DEBUG] 윈도우 좌표: ({win_x}, {win_y})")
+            
+            last_time = 0
+            
+            for i, event in enumerate(events):
+                event_time = event.get('time', 0)
+                
+                # 이전 이벤트와의 시간 차이 계산
+                if last_time > 0:
+                    wait_time = event_time - last_time
+                    if wait_time > 0.1:  # 100ms 이상 차이나면 Wait 명령어 추가
+                        commands.append(f"Wait {wait_time:.2f}")
+                
+                last_time = event_time
+                
+                if event['type'] == 'click':
+                    # 절대 좌표를 윈도우 상대 좌표로 변환
+                    rel_x = event['x'] - win_x
+                    rel_y = event['y'] - win_y
+                    
+                    # 버튼 종류에 따라 명령어 생성 (기본 옵션: offset 모드)
+                    button = event.get('button', 'Button.left')
+                    if 'left' in button.lower():
+                        cmd = f"Click {rel_x} {rel_y} offset"
+                        commands.append(cmd)
+                        print(f"[DEBUG] 이벤트 {i+1}: {cmd}")
+                    elif 'right' in button.lower():
+                        cmd = f"RClick {rel_x} {rel_y} offset"
+                        commands.append(cmd)
+                        print(f"[DEBUG] 이벤트 {i+1}: {cmd}")
+                
+                elif event['type'] == 'press':
+                    key = event.get('key', '')
+                    print(f"[DEBUG] Press 이벤트: key='{key}', len={len(key) if key else 0}")
+                    
+                    if key:
+                        # 특수 키 처리
+                        if key.lower() == 'enter':
+                            cmd = "Press enter"
+                            commands.append(cmd)
+                            print(f"[DEBUG] 이벤트 {i+1}: {cmd}")
+                        elif key.lower() == 'tab':
+                            cmd = "Press tab"
+                            commands.append(cmd)
+                            print(f"[DEBUG] 이벤트 {i+1}: {cmd}")
+                        elif key.lower() == 'space':
+                            cmd = "Press space"
+                            commands.append(cmd)
+                            print(f"[DEBUG] 이벤트 {i+1}: {cmd}")
+                        elif len(key) == 1:  # 일반 문자
+                            cmd = f"Press {key}"
+                            commands.append(cmd)
+                            print(f"[DEBUG] 이벤트 {i+1}: {cmd}")
+                        else:
+                            # 기타 특수 키 (Shift, Ctrl 등은 무시하지만 로그 출력)
+                            print(f"[DEBUG] 이벤트 {i+1}: 무시된 키 '{key}'")
+        
+        except Exception as e:
+            print(f"[ERROR] 이벤트 변환 중 오류: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        print(f"[DEBUG] 변환 완료 - 총 {len(commands)}개 명령어 생성")
+        return commands
