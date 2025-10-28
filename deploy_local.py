@@ -20,7 +20,7 @@ def load_version_info():
         with open('version.json', 'r', encoding='utf-8') as f:
             return json.load(f)
     except Exception as e:
-        print(f"❌ 버전 정보 로드 실패: {e}")
+        print(f"버전 정보 로드 실패: {e}")
         return None
 
 
@@ -33,7 +33,7 @@ def create_zip_package(version):
     exe_file = dist_dir / "BundleEditor.exe"
     
     if not exe_file.exists():
-        print(f"❌ EXE 파일을 찾을 수 없습니다: {exe_file}")
+        print(f"EXE 파일을 찾을 수 없습니다: {exe_file}")
         return None
     
     # ZIP 파일명
@@ -63,35 +63,35 @@ def create_zip_package(version):
         if Path('version.json').exists():
             zipf.write('version.json', 'version.json')
     
-    print(f"✅ ZIP 패키지 생성 완료: {zip_path}")
+    print(f"ZIP 패키지 생성 완료: {zip_path}")
     return zip_path
 
 def load_token_data():
     """token.json 로드"""
     token_path = Path("token.json")
     if not token_path.exists():
-        print("❌ token.json 파일이 없습니다.")
+        print("token.json 파일이 없습니다.")
         return None
     try:
         with open(token_path, "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception as e:
-        print(f"❌ token.json 읽기 실패: {e}")
+        print(f"token.json 읽기 실패: {e}")
         return None
 
 def get_github_token():
     """GitHub 토큰 가져오기 (token.json에서 읽기)"""
     token_data = load_token_data()
     if token_data and "github_token" in token_data:
-        print("✅ token.json에서 GitHub 토큰을 불러왔습니다.")
+        print("token.json에서 GitHub 토큰을 불러왔습니다.")
         return token_data["github_token"]
     
     token = os.environ.get("GITHUB_TOKEN")
     if token:
-        print("⚙️  환경변수 GITHUB_TOKEN에서 토큰을 불러왔습니다.")
+        print(" 환경변수 GITHUB_TOKEN에서 토큰을 불러왔습니다.")
         return token
     
-    print("❌ GitHub 토큰을 찾을 수 없습니다.")
+    print("GitHub 토큰을 찾을 수 없습니다.")
     return None
 
 
@@ -112,7 +112,7 @@ def create_github_release(version, changelog, token, zip_path):
     
     if os.path.exists(changelog_file_path):
         # 파일이 존재하면 사용자에게 편집 후 저장을 안내합니다.
-        print(f"✅ '{changelog_file_path}' 파일이 존재합니다.")
+        print(f"'{changelog_file_path}' 파일이 존재합니다.")
         print("    -> 파일을 열어 내용을 **작성 및 저장** 후,")
         print("    -> 이 **콘솔 창으로 돌아와 엔터(Enter) 키**를 누르세요.")
         
@@ -130,9 +130,9 @@ def create_github_release(version, changelog, token, zip_path):
         # 파일 내용을 읽습니다.
         with open(changelog_file_path, 'r', encoding='utf-8') as f:
             changelog_content = f.read().strip()
-            print(f"✅ '{changelog_file_path}' 파일 내용 읽기 완료.")
+            print(f"'{changelog_file_path}' 파일 내용 읽기 완료.")
     except FileNotFoundError:
-        print(f"❌ 오류: 파일을 작성 및 저장하지 않았거나, 파일 경로를 찾을 수 없습니다.")
+        print(f"오류: 파일을 작성 및 저장하지 않았거나, 파일 경로를 찾을 수 없습니다.")
         return # 파일이 없으면 함수 종료
 
     print("========================================================\n")
@@ -164,12 +164,12 @@ def create_github_release(version, changelog, token, zip_path):
     response = requests.post(url, json=release_data, headers=headers)
     
     if response.status_code != 201:
-        print(f"❌ 릴리즈 생성 실패: {response.status_code}")
+        print(f"릴리즈 생성 실패: {response.status_code}")
         print(response.text)
         return False
     
     release_id = response.json()['id']
-    print(f"✅ 릴리즈 생성 완료 (ID: {release_id})")
+    print(f"릴리즈 생성 완료 (ID: {release_id})")
     
     # 파일 업로드
     print(f"[3/4] ZIP 파일 업로드 중...")
@@ -187,11 +187,11 @@ def create_github_release(version, changelog, token, zip_path):
         response = requests.post(upload_url, headers=upload_headers, params=params, data=f)
     
     if response.status_code != 201:
-        print(f"❌ 파일 업로드 실패: {response.status_code}")
+        print(f"파일 업로드 실패: {response.status_code}")
         print(response.text)
         return False
     
-    print(f"✅ 파일 업로드 완료: {zip_path.name}")
+    print(f"파일 업로드 완료: {zip_path.name}")
     return True
 
 
@@ -202,7 +202,7 @@ def cleanup_files(zip_path):
     try:
         if zip_path and zip_path.exists():
             zip_path.unlink()
-            print(f"✅ ZIP 파일 삭제: {zip_path}")
+            print(f"ZIP 파일 삭제: {zip_path}")
     except Exception as e:
         print(f"⚠️  파일 정리 중 오류: {e}")
         
@@ -224,7 +224,7 @@ def send_slack_notification(version, changelog, webhook_url):
     try:
         response = requests.post(webhook_url, json=message)
         if response.status_code == 200:
-            print(f"✅ Slack 알림 전송 성공")
+            print(f"Slack 알림 전송 성공")
         else:
             print(f"⚠️ Slack 알림 실패: {response.status_code}")
     except Exception as e:
@@ -244,7 +244,7 @@ def choose_webhook(webhooks: dict) -> str:
                 return None
             elif 1 <= choice <= len(keys):
                 selected_key = keys[choice - 1]
-                print(f"✅ 선택된 Webhook: {selected_key}")
+                print(f"선택된 Webhook: {selected_key}")
                 return webhooks[selected_key]
             else:
                 print("⚠️ 잘못된 번호입니다. 다시 입력하세요.")
@@ -268,7 +268,7 @@ def main():
 
     zip_path = Path("dist/BundleEditor.zip")
     if not zip_path.exists():
-        print("\n❌ dist/BundleEditor.zip 파일이 존재하지 않습니다!")
+        print("\ndist/BundleEditor.zip 파일이 존재하지 않습니다!")
         return 1
 
     print(f"\n🚀 {version} 릴리즈를 GitHub에 배포하시겠습니까?")
@@ -289,7 +289,7 @@ def main():
             return 1
 
         print("\n" + "=" * 60)
-        print("✅ GitHub 릴리즈 완료!")
+        print("GitHub 릴리즈 완료!")
         print("=" * 60)
         print(f"릴리즈 URL: https://github.com/SungMinseok/PbbAuto/releases/tag/{version}")
 
@@ -304,7 +304,7 @@ def main():
         return 0
 
     except Exception as e:
-        print(f"\n❌ 배포 중 오류 발생: {e}")
+        print(f"\n배포 중 오류 발생: {e}")
         import traceback
         traceback.print_exc()
         return 1

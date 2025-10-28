@@ -50,14 +50,14 @@ def update_version(changelog_message=None):
         with open('version.json', 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         
-        print("\n✅ version.json 업데이트 완료!")
+        print("\nversion.json 업데이트 완료!")
         print(f"   버전: {new_version}")
         print(f"   날짜: {build_date}")
         
         return new_version
         
     except Exception as e:
-        print(f"❌ 오류 발생: {e}")
+        print(f"오류 발생: {e}")
         sys.exit(1)
 
 

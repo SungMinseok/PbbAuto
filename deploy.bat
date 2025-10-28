@@ -1,5 +1,6 @@
 @echo off
 chcp 65001 >nul
+set PYTHONIOENCODING=utf-8
 REM ==========================================
 REM PbbAuto Local Build Deploy Script
 REM ==========================================
@@ -9,18 +10,32 @@ echo PbbAuto Local Build Deploy Script
 echo ========================================
 echo.
 
-echo [0/6] Activate virtual environment...
-echo.
-
-set VENV1=C:\Users\성민석\OneDrive - KRAFTON\PyProject\PbbAuto\.venv\Scripts\activate.bat
-call "%VENV1%"
-echo.
 echo [1/6] Update version.json...
 echo.
-set /p CHANGELOG_MSG="Input changelog (Enter=Auto Deploy): "
-if "%CHANGELOG_MSG%"=="" (
-    set CHANGELOG_MSG=Auto Deploy
-)
+@echo off
+setlocal enabledelayedexpansion
+
+echo 입력을 마치려면 빈 줄에서 Enter를 누르세요.
+set "CHANGELOG_MSG="
+
+:readLoop
+set "line="
+set /p "line=> "
+if "%line%"=="" goto doneInput
+set "CHANGELOG_MSG=!CHANGELOG_MSG!!line!^&echo."
+goto readLoop
+
+:doneInput
+
+echo -----------------------------
+echo 입력된 Changelog:
+echo !CHANGELOG_MSG!
+echo -----------------------------
+
+:: 기본값 처리
+if "!CHANGELOG_MSG!"=="" set "CHANGELOG_MSG=Auto Deploy"
+
+:: 이제 여기서 CHANGELOG_MSG를 release.py 등으로 넘길 수 있음
 
 REM Update version.json
 python update_version.py "%CHANGELOG_MSG%"
@@ -34,6 +49,8 @@ echo.
 
 echo.
 echo [2/6] Local Build (EXE)...
+set "VENV=c:\Users\성민석\OneDrive - KRAFTON\PyProject\PbbAuto\.venv"
+set "PATH=%VENV%\Scripts;%PATH%"
 python build.py
 if errorlevel 1 (
     echo ❌ Build failed!
