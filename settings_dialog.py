@@ -13,7 +13,7 @@ import json
 import webbrowser
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
                              QLineEdit, QCheckBox, QFileDialog, QMessageBox, QGroupBox,
-                             QDialogButtonBox, QFrame)
+                             QDialogButtonBox, QFrame, QSpinBox)
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QIcon, QPixmap, QPalette
 import pytesseract
@@ -50,6 +50,10 @@ class SettingsDialog(QDialog):
         # Debug 설정 그룹
         debug_group = self.create_debug_group()
         layout.addWidget(debug_group)
+        
+        # 자동 저장 설정 그룹
+        auto_save_group = self.create_auto_save_group()
+        layout.addWidget(auto_save_group)
         
         # 구분선
         line = QFrame()
@@ -142,11 +146,49 @@ class SettingsDialog(QDialog):
         group.setLayout(layout)
         return group
     
+    def create_auto_save_group(self):
+        """자동 저장 설정 그룹 생성"""
+        group = QGroupBox("💾 자동 저장 설정")
+        layout = QVBoxLayout()
+        
+        # 자동 저장 활성화 체크박스
+        self.auto_save_checkbox = QCheckBox("자동 저장 활성화")
+        self.auto_save_checkbox.setToolTip("예기치 않은 종료로 인한 데이터 손실을 방지하기 위해 자동으로 저장합니다.")
+        self.auto_save_checkbox.toggled.connect(self.on_auto_save_changed)
+        layout.addWidget(self.auto_save_checkbox)
+        
+        # 자동 저장 주기 설정
+        interval_layout = QHBoxLayout()
+        interval_label = QLabel("저장 주기:")
+        interval_label.setStyleSheet("margin-left: 20px;")
+        interval_layout.addWidget(interval_label)
+        
+        self.auto_save_interval_spinbox = QSpinBox()
+        self.auto_save_interval_spinbox.setMinimum(1)
+        self.auto_save_interval_spinbox.setMaximum(60)
+        self.auto_save_interval_spinbox.setSuffix(" 분")
+        self.auto_save_interval_spinbox.setToolTip("자동 저장 간격을 분 단위로 설정합니다. (1~60분)")
+        self.auto_save_interval_spinbox.valueChanged.connect(self.on_auto_save_interval_changed)
+        interval_layout.addWidget(self.auto_save_interval_spinbox)
+        
+        interval_layout.addStretch()
+        layout.addLayout(interval_layout)
+        
+        # 설명
+        desc_label = QLabel("활성화 시 설정한 주기마다 현재 작업 내용을 자동으로 저장합니다.")
+        desc_label.setStyleSheet("color: #666; font-size: 11px; margin-left: 20px;")
+        layout.addWidget(desc_label)
+        
+        group.setLayout(layout)
+        return group
+    
     def load_settings(self):
         """설정 파일에서 설정 로드"""
         default_settings = {
             "tesseract_path": "",
-            "debug_mode": False
+            "debug_mode": False,
+            "auto_save_enabled": False,
+            "auto_save_interval": 5
         }
         
         try:
@@ -200,6 +242,16 @@ class SettingsDialog(QDialog):
         # Debug 모드
         debug_mode = self.settings.get("debug_mode", False)
         self.debug_mode_checkbox.setChecked(debug_mode)
+        
+        # 자동 저장 설정
+        auto_save_enabled = self.settings.get("auto_save_enabled", False)
+        self.auto_save_checkbox.setChecked(auto_save_enabled)
+        
+        auto_save_interval = self.settings.get("auto_save_interval", 5)
+        self.auto_save_interval_spinbox.setValue(auto_save_interval)
+        
+        # 자동 저장 간격 SpinBox 활성화 상태 설정
+        self.auto_save_interval_spinbox.setEnabled(auto_save_enabled)
         
         # 경로 유효성 검사
         self.validate_tesseract_path()
@@ -318,6 +370,17 @@ class SettingsDialog(QDialog):
         
         print(f"Debug 모드가 {'활성화' if checked else '비활성화'}되었습니다.")
     
+    def on_auto_save_changed(self, checked):
+        """자동 저장 설정 변경 시 호출"""
+        self.settings["auto_save_enabled"] = checked
+        self.auto_save_interval_spinbox.setEnabled(checked)
+        print(f"자동 저장이 {'활성화' if checked else '비활성화'}되었습니다.")
+    
+    def on_auto_save_interval_changed(self, value):
+        """자동 저장 주기 변경 시 호출"""
+        self.settings["auto_save_interval"] = value
+        print(f"자동 저장 주기가 {value}분으로 설정되었습니다.")
+    
     def accept_settings(self):
         """설정 적용"""
         # Tesseract 경로 검증
@@ -337,6 +400,8 @@ class SettingsDialog(QDialog):
         # 설정 업데이트
         self.settings["tesseract_path"] = tesseract_path
         self.settings["debug_mode"] = self.debug_mode_checkbox.isChecked()
+        self.settings["auto_save_enabled"] = self.auto_save_checkbox.isChecked()
+        self.settings["auto_save_interval"] = self.auto_save_interval_spinbox.value()
         
         # 설정 저장
         if self.save_settings():

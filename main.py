@@ -122,6 +122,9 @@ class PbbAutoApp(QWidget):
         # 화면 밝기 상태 초기 업데이트
         self.update_brightness_status()
         
+        # 자동 저장 타이머 초기화
+        self.init_auto_save_timer()
+        
         # 시작 시 자동 업데이트 확인 (비동기)(앱실행 즉시)
         #self.check_for_updates()
         QTimer.singleShot(100, self.check_for_updates_on_startup)  # 3초 후 체크
@@ -192,9 +195,9 @@ class PbbAutoApp(QWidget):
     def _init_window_section(self, main_layout):
         """윈도우 선택 섹션 초기화"""
         self.prefix_input = QLineEdit(self)
-        self.prefix_input.setReadOnly(True)
-        self.prefix_input.setFixedWidth(1)
-        #self.prefix_input.setPlaceholderText("Window Title Prefix")
+        #self.prefix_input.setReadOnly(True)
+        self.prefix_input.setFixedWidth(50)
+        self.prefix_input.setPlaceholderText("Prefix")
         self.refresh_label = QLabel('Current Window: ', self)
         self.refresh_label.setFixedWidth(100)
         self.refresh_button = QPushButton('🔄️', self)
@@ -789,7 +792,9 @@ class PbbAutoApp(QWidget):
         """앱 설정 로드"""
         default_settings = {
             "tesseract_path": "",
-            "debug_mode": False
+            "debug_mode": False,
+            "auto_save_enabled": False,
+            "auto_save_interval": 5
         }
         
         try:
@@ -828,6 +833,9 @@ class PbbAutoApp(QWidget):
         if tesseract_path:
             from utils import set_pytesseract_cmd
             set_pytesseract_cmd(tesseract_path)
+        
+        # 자동 저장 타이머 재시작
+        self.restart_auto_save_timer()
 
     def test_ocr(self):
         """OCR 테스트"""
@@ -1692,6 +1700,81 @@ class PbbAutoApp(QWidget):
         self.mouse_timer = QTimer(self)
         self.mouse_timer.timeout.connect(self.update_mouse_position)
         self.mouse_timer.start(100)  # 100ms마다 업데이트 (10FPS)
+    
+    def init_auto_save_timer(self):
+        """자동 저장 타이머 초기화"""
+        self.auto_save_timer = QTimer(self)
+        self.auto_save_timer.timeout.connect(self.perform_auto_save)
+        
+        # 설정에 따라 타이머 시작
+        auto_save_enabled = self.settings.get("auto_save_enabled", False)
+        auto_save_interval = self.settings.get("auto_save_interval", 5)
+        
+        if auto_save_enabled:
+            # 분을 밀리초로 변환
+            interval_ms = auto_save_interval * 60 * 1000
+            self.auto_save_timer.start(interval_ms)
+            self.log(f"[자동 저장] 활성화됨 (주기: {auto_save_interval}분)")
+        else:
+            self.log("[자동 저장] 비활성화됨")
+    
+    def restart_auto_save_timer(self):
+        """자동 저장 타이머 재시작"""
+        # 기존 타이머 중지
+        if hasattr(self, 'auto_save_timer'):
+            self.auto_save_timer.stop()
+        
+        # 설정에 따라 타이머 재시작
+        auto_save_enabled = self.settings.get("auto_save_enabled", False)
+        auto_save_interval = self.settings.get("auto_save_interval", 5)
+        
+        if auto_save_enabled:
+            # 분을 밀리초로 변환
+            interval_ms = auto_save_interval * 60 * 1000
+            self.auto_save_timer.start(interval_ms)
+            self.log(f"[자동 저장] 재시작됨 (주기: {auto_save_interval}분)")
+        else:
+            self.log("[자동 저장] 비활성화됨")
+    
+    def perform_auto_save(self):
+        """자동 저장 실행"""
+        try:
+            # 현재 파일이 있을 때만 자동 저장
+            if self.current_file_path:
+                # save_bundles() 메서드 사용 (파일 다이얼로그 없이 저장)
+                save_data = {
+                    "bundles": self.bundles,
+                    "command_list": []
+                }
+                
+                for i in range(self.command_list.count()):
+                    item = self.command_list.item(i)
+                    item_text = item.text()
+                    bundle_name = self._parse_bundle_display(item_text)
+                    is_checked = item.checkState() == Qt.Checked
+                    
+                    if bundle_name:
+                        save_data["command_list"].append({
+                            "type": "bundle",
+                            "name": bundle_name,
+                            "checked": is_checked
+                        })
+                    else:
+                        save_data["command_list"].append({
+                            "type": "command",
+                            "text": item_text,
+                            "checked": is_checked
+                        })
+                
+                with open(self.current_file_path, 'w', encoding='utf-8') as f:
+                    json.dump(save_data, f, ensure_ascii=False, indent=2)
+                
+                current_time = datetime.now().strftime("%H:%M:%S")
+                self.log(f"[자동 저장] 완료 ({current_time})")
+            else:
+                self.log("[자동 저장] 저장할 파일이 없습니다. 먼저 파일을 저장하세요.")
+        except Exception as e:
+            self.log_error(f"[자동 저장] 오류: {e}")
 
     def update_mouse_position(self):
         """마우스 위치 업데이트"""
